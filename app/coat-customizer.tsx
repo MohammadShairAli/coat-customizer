@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useState } from "react";
 
 export type CustomizerOption = { src: string; name: string };
+const ITEMS_PER_PAGE = 10;
 
 export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOption[]; buttons: CustomizerOption[] }) {
   const [selectedCoat, setSelectedCoat] = useState(0);
@@ -38,10 +39,7 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
         <div className={`preview ${previewIsLoading ? "isLoading" : ""}`} aria-busy={previewIsLoading}>
           {previewIsLoading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing your coat</span></div>}
           {coat && <Image src={coat.src} alt={`${coat.name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => markImageLoaded(coat.src)} />}
-          {button && <>
-            <Image src={button.src} alt={`${button.name} buttons`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer buttonUpper" onLoad={() => markImageLoaded(button.src)} />
-            <Image src={button.src} alt="" fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer buttonLower" />
-          </>}
+          {button && <Image src={button.src} alt={`${button.name} buttons`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer" onLoad={() => markImageLoaded(button.src)} />}
           {!coat && <p className="emptyPreview">Add a coat image to<br /><code>public/coats</code></p>}
         </div>
       </section>
@@ -62,19 +60,36 @@ function OptionGroup({ title, options, selected, onSelect, type, emptyMessage }:
   title: string; options: CustomizerOption[]; selected: number; onSelect: (index: number) => void;
   type: "coat" | "button"; emptyMessage: string;
 }) {
+  const [page, setPage] = useState(0);
+  const totalPages = Math.ceil(options.length / ITEMS_PER_PAGE);
+  const pageStart = page * ITEMS_PER_PAGE;
+  const pageOptions = options.slice(pageStart, pageStart + ITEMS_PER_PAGE);
+
   return (
     <fieldset className="optionGroup">
       <legend>{title}</legend>
       {options.length ? (
-        <div className="optionGrid">
-          {options.map((option, index) => (
-            <button type="button" key={option.src} className={`option ${selected === index ? "selected" : ""}`} onClick={() => onSelect(index)} aria-pressed={selected === index} aria-label={`Choose ${option.name}`}>
-              <span className={`swatch ${type}`}><Image src={option.src} alt="" fill sizes="96px" /></span>
-              <span>{option.name}</span>
-              <i aria-hidden="true" />
-            </button>
-          ))}
-        </div>
+        <>
+          <div key={page} className={`optionGrid ${pageOptions.length > 4 ? "scrollable" : ""}`}>
+            {pageOptions.map((option, index) => {
+              const optionIndex = pageStart + index;
+              return (
+                <button type="button" key={option.src} className={`option ${selected === optionIndex ? "selected" : ""}`} onClick={() => onSelect(optionIndex)} aria-pressed={selected === optionIndex} aria-label={`Choose ${option.name}`}>
+                  <span className={`swatch ${type}`}><Image src={type === "button" ? "/buttons/placeholder.png" : option.src} alt="" fill sizes="96px" /></span>
+                  <span>{option.name}</span>
+                  <i aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+          {totalPages > 1 && (
+            <nav className="pagination" aria-label={`${title} pages`}>
+              <button type="button" onClick={() => setPage((current) => current - 1)} disabled={page === 0}>Previous</button>
+              <span>Page {page + 1} of {totalPages}</span>
+              <button type="button" onClick={() => setPage((current) => current + 1)} disabled={page === totalPages - 1}>Next</button>
+            </nav>
+          )}
+        </>
       ) : <p className="emptyOptions">{emptyMessage}</p>}
     </fieldset>
   );

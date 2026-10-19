@@ -18,7 +18,11 @@ async function getImages(folder: "coats" | "buttons"): Promise<CustomizerOption[
   try {
     const entries = await readdir(directory, { withFileTypes: true });
     return entries
-      .filter((entry) => entry.isFile() && SUPPORTED_IMAGE_TYPES.has(path.extname(entry.name).toLowerCase()))
+      .filter((entry) =>
+        entry.isFile() &&
+        SUPPORTED_IMAGE_TYPES.has(path.extname(entry.name).toLowerCase()) &&
+        !(folder === "buttons" && entry.name.toLowerCase() === "placeholder.png")
+      )
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
       .map((entry) => ({
         src: `/${folder}/${encodeURIComponent(entry.name)}`,
