@@ -1,69 +1,70 @@
+"use client";
+
 import Image from "next/image";
+import { useState } from "react";
+
+const coats = [
+  { src: "/Coat1.png", name: "Blue Check" },
+  { src: "/Coat2.png", name: "Ivory Linen" },
+];
+
+const buttons = [
+  { src: "/Button1.png", name: "Gold" },
+  { src: "/Button2.png", name: "Silver Crest" },
+];
 
 export default function Home() {
+  const [selectedCoat, setSelectedCoat] = useState(0);
+  const [selectedButton, setSelectedButton] = useState(0);
+
+  return ( 
+    <main className="customizer">
+      <section className="intro">
+        <p className="eyebrow">The Atelier</p>
+        <h1>Build your coat.</h1>
+        <p className="description">Select a cloth and finish it with your preferred buttons.</p>
+      </section>
+
+      <section className="product" aria-label="Coat preview">
+        <div className="productGlow" />
+        <div className="preview">
+          <Image src={coats[selectedCoat].src} alt={`${coats[selectedCoat].name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" />
+          <Image src={buttons[selectedButton].src} alt={`${buttons[selectedButton].name} buttons`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer buttonUpper" />
+          <Image src={buttons[selectedButton].src} alt="" fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer buttonLower" />
+        </div>
+      </section>
+
+      <aside className="controls" aria-label="Customize your coat">
+        <OptionGroup title="01 — Select coat" options={coats} selected={selectedCoat} onSelect={setSelectedCoat} type="coat" />
+        <OptionGroup title="02 — Select buttons" options={buttons} selected={selectedButton} onSelect={setSelectedButton} type="button" />
+        <div className="selectionSummary" aria-live="polite">
+          <span>Your selection</span>
+          <strong>{coats[selectedCoat].name} / {buttons[selectedButton].name}</strong>
+        </div>
+      </aside>
+    </main>
+  );
+}
+
+function OptionGroup({ title, options, selected, onSelect, type }: {
+  title: string;
+  options: { src: string; name: string }[];
+  selected: number;
+  onSelect: (index: number) => void;
+  type: "coat" | "button";
+}) {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+    <fieldset className="optionGroup">
+      <legend>{title}</legend>
+      <div className="optionGrid">
+        {options.map((option, index) => (
+          <button type="button" key={option.name} className={`option ${selected === index ? "selected" : ""}`} onClick={() => onSelect(index)} aria-pressed={selected === index} aria-label={`Choose ${option.name}`}>
+            <span className={`swatch ${type}`}><Image src={option.src} alt="" fill sizes="96px" /></span>
+            <span>{option.name}</span>
+            <i aria-hidden="true" />
+          </button>
+        ))}
+      </div>
+    </fieldset>
   );
 }
