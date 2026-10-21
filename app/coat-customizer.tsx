@@ -1,20 +1,21 @@
 "use client";
 
 import Image from "next/image";
-import { useState, Suspense, useEffect } from "react";
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls, useGLTF, Center, Environment } from "@react-three/drei";
+import { useState, Suspense, useEffect, useRef } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, useGLTF, useProgress, Center, Environment } from "@react-three/drei";
 import * as THREE from "three";
 
-export type CustomizerOption = { src: string; name: string };
+export type CustomizerOption = { src: string; name: string; model?: string };
+type ViewMode = "3d" | "image";
 const ITEMS_PER_PAGE = 10;
+const VIEW_MODES: { value: ViewMode; label: string }[] = [
+  { value: "3d", label: "3D" },
+  { value: "image", label: "Image" },
+];
 
-// Preload both models early
-useGLTF.preload("/suit.glb");
-useGLTF.preload("/buttons/buttons.glb");
-
-function CoatModel() {
-  const { scene } = useGLTF("/suit.glb");
+function CoatModel({ url }: { url: string }) {
+  const { scene } = useGLTF(url);
 
   useEffect(() => {
     scene.traverse((child) => {
@@ -56,13 +57,41 @@ function ButtonModel({ selectedButtonOption }: { selectedButtonOption?: Customiz
   return <primitive object={scene} />;
 }
 
+// Reports once the model has actually been drawn, so the loader also covers GPU upload and shader compilation
+function ModelReady({ url, onReady }: { url: string; onReady: (url: string) => void }) {
+  const frames = useRef(0);
+
+  useFrame(() => {
+    frames.current += 1;
+    if (frames.current === 2) onReady(url);
+  });
+
+  return null;
+}
+
 export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOption[]; buttons: CustomizerOption[] }) {
   const [selectedCoat, setSelectedCoat] = useState(0);
   const [selectedButton, setSelectedButton] = useState(0);
+  const [viewMode, setViewMode] = useState<ViewMode>("image");
   const [loadedImages, setLoadedImages] = useState<Set<string>>(() => new Set());
-  
+  const [readyModel, setReadyModel] = useState<string | null>(null);
+  const { active: modelIsLoading, progress: modelProgress } = useProgress();
+
   const coat = coats[selectedCoat];
   const button = buttons[selectedButton];
+  const coatModel = coat?.model;
+  const modelPreviewIsLoading = Boolean(coatModel && readyModel !== coatModel);
+  const previewIsLoading = Boolean(
+    (coat && !loadedImages.has(coat.src)) ||
+    (button && !loadedImages.has(button.src)),
+  );
+
+  // Fetch the selected coat's 3D model in the background only after the image preview has finished loading
+  useEffect(() => {
+    if (previewIsLoading) return;
+    if (coatModel) useGLTF.preload(coatModel);
+    useGLTF.preload("/buttons/buttons.glb");
+  }, [previewIsLoading, coatModel]);
 
   function markImageLoaded(src: string) {
     setLoadedImages((current) => {
@@ -83,23 +112,46 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
 
       <section className="product" aria-label="Coat preview">
         <div className="productGlow" />
-        
-        {/* Preview container: Square shape with transparent background */}
-        <div 
-          className="preview" 
-          style={{ 
-            width: "100%", 
-            maxWidth: "555px",
-            maxHeight: "585px", 
-            borderRadius: "0px", 
-            overflow: "hidden", 
-            position: "relative",
-            margin: "-4rem auto 0 auto",
-            background: "transparent"
-          }}
-        >
+
+        <div className="viewToggle" role="group" aria-label="Preview mode">
+          {VIEW_MODES.map((mode) => (
+            <button
+              type="button"
+              key={mode.value}
+              className={viewMode === mode.value ? "active" : ""}
+              onClick={() => {
+                if (mode.value === viewMode) return;
+                setViewMode(mode.value);
+                // The canvas remounts when entering 3D, so the model must be drawn again before the loader hides
+                setReadyModel(null);
+              }}
+              aria-pressed={viewMode === mode.value}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+        {viewMode === "image" ? (
+          <div className={`preview ${previewIsLoading ? "isLoading" : ""}`} aria-busy={previewIsLoading}>
+            {previewIsLoading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing your coat</span></div>}
+            {coat && <Image src={coat.src} alt={`${coat.name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => markImageLoaded(coat.src)} />}
+            {button && <Image src={button.src} alt={`${button.name} buttons`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer" onLoad={() => markImageLoaded(button.src)} />}
+            {!coat && <p className="emptyPreview">Add a coat image to<br /><code>public/coats</code></p>}
+          </div>
+        ) : (
+        /* Preview container: tall transparent box so the model has room to zoom without clipping */
+        <div className={`preview3d ${modelPreviewIsLoading ? "isLoading" : ""}`} aria-busy={modelPreviewIsLoading}>
+          {modelPreviewIsLoading && (
+            <div className="previewLoader" role="status">
+              <span className="spinner" />
+              <span>{modelIsLoading ? `Loading 3D model ${Math.round(modelProgress)}%` : "Preparing 3D view"}</span>
+            </div>
+          )}
+          {!coatModel && <p className="emptyPreview">Add a <code>.glb</code> with the same name as<br />the coat image to <code>public/coats</code></p>}
           <Canvas
-            camera={{ position: [0, 0.05, 0.95], fov: 38 }}
+            className="modelCanvas"
+            camera={{ position: [0, 0.05, 0.8], fov: 38 }}
             style={{ width: "100%", height: "100%", position: "absolute", inset: 0, pointerEvents: "auto", background: "transparent" }}
             gl={{ 
               outputColorSpace: THREE.SRGBColorSpace, 
@@ -117,14 +169,19 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
             {/* Optimized Top-Down Highlight Light: Positioned slightly forward and higher up to directly hit the shoulders */}
             <directionalLight position={[0, 6, 1.5]} intensity={2.2} />
 
-            <Suspense fallback={null}>
-              <group position={[0, -0.13, 0]}>
-                <Center>
-                  <CoatModel />
-                  <ButtonModel selectedButtonOption={button} />
-                </Center>
-              </group>
+            {coatModel && (
+              <Suspense fallback={null}>
+                <group position={[0, -0.13, 0]}>
+                  <Center key={coatModel}>
+                    <CoatModel url={coatModel} />
+                    <ButtonModel selectedButtonOption={button} />
+                    <ModelReady url={coatModel} onReady={setReadyModel} />
+                  </Center>
+                </group>
+              </Suspense>
+            )}
 
+            <Suspense fallback={null}>
               <Environment preset="apartment" environmentIntensity={0.25} />
             </Suspense>
 
@@ -137,15 +194,8 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
               maxDistance={2.2}
             />
           </Canvas>
-
-          {button && (
-            <div style={{ display: "none" }}>
-              <Image src={button.src} alt="" width={1} height={1} onLoad={() => markImageLoaded(button.src)} />
-            </div>
-          )}
-
-          {!coat && <p className="emptyPreview">Ensure <code>suit.glb</code> is placed in<br /><code>public/</code></p>}
         </div>
+        )}
       </section>
 
       <aside className="controls" aria-label="Customize your coat">

@@ -17,6 +17,12 @@ async function getImages(folder: "coats" | "buttons"): Promise<CustomizerOption[
 
   try {
     const entries = await readdir(directory, { withFileTypes: true });
+    // A 3D model belongs to the image with the same base name, e.g. Coat-1.png + Coat-1.glb
+    const models = new Map(
+      entries
+        .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === ".glb")
+        .map((entry) => [path.parse(entry.name).name.toLowerCase(), entry.name]),
+    );
     return entries
       .filter((entry) =>
         entry.isFile() &&
@@ -24,10 +30,14 @@ async function getImages(folder: "coats" | "buttons"): Promise<CustomizerOption[
         !(folder === "buttons" && entry.name.toLowerCase() === "placeholder.png")
       )
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
-      .map((entry) => ({
-        src: `/${folder}/${encodeURIComponent(entry.name)}`,
-        name: labelFromFilename(entry.name),
-      }));
+      .map((entry) => {
+        const model = models.get(path.parse(entry.name).name.toLowerCase());
+        return {
+          src: `/${folder}/${encodeURIComponent(entry.name)}`,
+          name: labelFromFilename(entry.name),
+          ...(model && { model: `/${folder}/${encodeURIComponent(model)}` }),
+        };
+      });
   } catch (error) {
     const code = error instanceof Error && "code" in error ? error.code : undefined;
     if (code === "ENOENT") return [];
