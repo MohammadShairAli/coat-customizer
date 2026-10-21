@@ -154,7 +154,7 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
             camera={{ position: [0, 0.05, 0.8], fov: 38 }}
             style={{ width: "100%", height: "100%", position: "absolute", inset: 0, pointerEvents: "auto", background: "transparent" }}
             gl={{ 
-              outputColorSpace: THREE.SRGBColorSpace, 
+              outputColorSpace: THREE.SRGBColorSpace,  
               toneMapping: THREE.LinearToneMapping, 
               toneMappingExposure: 1.15,
               alpha: true 
