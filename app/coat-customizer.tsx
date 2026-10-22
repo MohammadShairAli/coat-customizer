@@ -1,12 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import { useState, Suspense, useEffect, useRef } from "react";
+import { useState, Suspense, useEffect, useLayoutEffect, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, useGLTF, useProgress, Center, Environment } from "@react-three/drei";
+import { OrbitControls, useGLTF, useProgress, Center, Environment, Lightformer } from "@react-three/drei";
+import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import * as THREE from "three";
 
-export type CustomizerOption = { src: string; name: string; model?: string };
+RectAreaLightUniformsLib.init();
+
+export type CustomizerOption = { src: string; name: string; model?: string; thumb?: string };
 type ViewMode = "3d" | "image";
 const ITEMS_PER_PAGE = 10;
 const VIEW_MODES: { value: ViewMode; label: string }[] = [
@@ -16,45 +19,91 @@ const VIEW_MODES: { value: ViewMode; label: string }[] = [
 
 function CoatModel({ url }: { url: string }) {
   const { scene } = useGLTF(url);
-
-  useEffect(() => {
-    scene.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        if (mesh.material) {
-          const mat = mesh.material as THREE.MeshStandardMaterial;
-          mat.roughness = 1.0;
-          mat.metalness = 0.0;
-          if (mat.map) {
-            mat.map.colorSpace = THREE.SRGBColorSpace;
-          }
-          mat.needsUpdate = true;
-        }
-      }
-    });
-  }, [scene]);
-
   return <primitive object={scene} />;
+}
+
+// buttons.glb is one disc for every style. The photo overlays carry the real engraving;
+// the 3D view follows the choice with the matching metal or horn finish.
+const BUTTON_FINISHES: Record<string, { color: string; metalness: number; roughness: number; env: number }> = {
+  "button-1": { color: "#e2c56a", metalness: 0.95, roughness: 0.2, env: 1.35 },
+  "button-2": { color: "#c6a15a", metalness: 0.72, roughness: 0.46, env: 0.9 },
+  "button-3": { color: "#2a2624", metalness: 0.28, roughness: 0.34, env: 0.55 },
+  "button-4": { color: "#f3eee4", metalness: 0.02, roughness: 0.48, env: 0.35 },
+};
+
+function buttonFinish(option?: CustomizerOption) {
+  const key = option?.src.split("/").pop()?.replace(/\.[^.]+$/, "").toLowerCase() ?? "";
+  return BUTTON_FINISHES[key] ?? BUTTON_FINISHES["button-1"];
 }
 
 function ButtonModel({ selectedButtonOption }: { selectedButtonOption?: CustomizerOption }) {
   const { scene } = useGLTF("/buttons/buttons.glb");
+  const finishKey = selectedButtonOption?.src;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const finish = buttonFinish(selectedButtonOption);
     scene.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        if (mesh.material) {
-          const mat = mesh.material as THREE.MeshStandardMaterial;
-          mat.roughness = 0.3;
-          mat.metalness = 0.1;
-          mat.needsUpdate = true;
-        }
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+      const mat = mesh.material as THREE.MeshStandardMaterial;
+      if (!mat.isMeshStandardMaterial) return;
+
+      const name = mat.name.toLowerCase();
+      if (name.includes("button")) {
+        mat.color.set(finish.color);
+        mat.metalness = finish.metalness;
+        mat.roughness = finish.roughness;
+        mat.envMapIntensity = finish.env;
+      } else {
+        mat.metalness = 0;
+        mat.roughness = 0.7;
       }
+      mat.needsUpdate = true;
     });
-  }, [scene]);
+  }, [scene, finishKey, selectedButtonOption]);
 
   return <primitive object={scene} />;
+}
+
+// Large softbox in front of the suit, with a wider overhead wash. The photo is even studio light
+// and only a little brighter across the shoulders — a tight spotlight leaves the sleeves in a hole.
+function StudioKey() {
+  const softbox = useRef<THREE.RectAreaLight>(null);
+  const spot = useRef<THREE.SpotLight>(null);
+  const spotTarget = useRef<THREE.Object3D>(null);
+
+  useLayoutEffect(() => {
+    softbox.current?.lookAt(0, 0.02, 0);
+    if (spot.current && spotTarget.current) spot.current.target = spotTarget.current;
+  }, []);
+
+  return (
+    <>
+      <hemisphereLight args={["#f6f3ee", "#c8c2b6", 0.36]} />
+      <directionalLight position={[0, 0.1, 2.5]} intensity={0.58} color="#f4f0ea" />
+
+      <rectAreaLight
+        ref={softbox}
+        position={[0, 0.72, 0.85]}
+        width={2.2}
+        height={1.25}
+        intensity={5.2}
+        color="#fff7f1"
+      />
+
+      <spotLight
+        ref={spot}
+        position={[0, 1.4, 0.48]}
+        angle={1.1}
+        penumbra={0.9}
+        intensity={2.8}
+        decay={2}
+        distance={5}
+        color="#fff6ee"
+      />
+      <object3D ref={spotTarget} position={[0, 0.12, 0.02]} />
+    </>
+  );
 }
 
 // Reports once the model has actually been drawn, so the loader also covers GPU upload and shader compilation
@@ -136,7 +185,7 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
           <div className={`preview ${previewIsLoading ? "isLoading" : ""}`} aria-busy={previewIsLoading}>
             {previewIsLoading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing your coat</span></div>}
             {coat && <Image src={coat.src} alt={`${coat.name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => markImageLoaded(coat.src)} />}
-            {button && <Image src={button.src} alt={`${button.name} buttons`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer" onLoad={() => markImageLoaded(button.src)} />}
+            {button && <Image key={button.src} src={button.src} alt={`${button.name} buttons`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer" onLoad={() => markImageLoaded(button.src)} />}
             {!coat && <p className="emptyPreview">Add a coat image to<br /><code>public/coats</code></p>}
           </div>
         ) : (
@@ -151,23 +200,18 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
           {!coatModel && <p className="emptyPreview">Add a <code>.glb</code> with the same name as<br />the coat image to <code>public/coats</code></p>}
           <Canvas
             className="modelCanvas"
+            dpr={[1, 2]}
             camera={{ position: [0, 0.05, 0.8], fov: 38 }}
             style={{ width: "100%", height: "100%", position: "absolute", inset: 0, pointerEvents: "auto", background: "transparent" }}
-            gl={{ 
-              outputColorSpace: THREE.SRGBColorSpace,  
-              toneMapping: THREE.LinearToneMapping, 
-              toneMappingExposure: 1.15,
-              alpha: true 
+            gl={{
+              antialias: true,
+              outputColorSpace: THREE.SRGBColorSpace,
+              toneMapping: THREE.NeutralToneMapping,
+              toneMappingExposure: 1.08,
+              alpha: true,
             }}
           >
-            {/* Ambient fill light */}
-            <ambientLight intensity={1.0} />
-
-            {/* Frontal light for general visibility */}
-            <directionalLight position={[2, 4, 3]} intensity={0.7} />
-
-            {/* Optimized Top-Down Highlight Light: Positioned slightly forward and higher up to directly hit the shoulders */}
-            <directionalLight position={[0, 6, 1.5]} intensity={2.2} />
+            <StudioKey />
 
             {coatModel && (
               <Suspense fallback={null}>
@@ -182,16 +226,20 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
             )}
 
             <Suspense fallback={null}>
-              <Environment preset="apartment" environmentIntensity={0.25} />
+              <Environment preset="studio" environmentIntensity={0.24} resolution={256}>
+                <Lightformer form="rect" intensity={2.2} color="#fff6ee" position={[0, 1.85, 0.25]} scale={[2.6, 1, 1]} target={[0, 0.08, 0]} />
+                <Lightformer form="rect" intensity={0.4} color="#f3ece3" position={[0, 0.05, 1.8]} scale={[2.2, 1.4, 1]} target={[0, 0, 0]} />
+              </Environment>
             </Suspense>
 
-            <OrbitControls 
-              target={[0, 0.05, 0]} 
-              enableZoom={true} 
-              enableRotate={true} 
+            <OrbitControls
+              target={[0, 0.05, 0]}
+              enableZoom={true}
+              enableRotate={true}
               enablePan={false}
-              minDistance={0.3}
-              maxDistance={2.2}
+              // Default camera sits at 0.8. Closer than this turns the pinstripe into a corduroy close-up.
+              minDistance={0.64}
+              maxDistance={1.35}
             />
           </Canvas>
         </div>
@@ -229,7 +277,7 @@ function OptionGroup({ title, options, selected, onSelect, type, emptyMessage }:
               const optionIndex = pageStart + index;
               return (
                 <button type="button" key={option.src} className={`option ${selected === optionIndex ? "selected" : ""}`} onClick={() => onSelect(optionIndex)} aria-pressed={selected === optionIndex} aria-label={`Choose ${option.name}`}>
-                  <span className={`swatch ${type}`}><Image src={type === "button" ? "/buttons/placeholder.png" : option.src} alt="" fill sizes="96px" /></span>
+                  <span className={`swatch ${type}`}><Image src={option.thumb ?? option.src} alt="" fill sizes={type === "button" ? "240px" : "96px"} /></span>
                   <span>{option.name}</span>
                   <i aria-hidden="true" />
                 </button>

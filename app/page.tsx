@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { connection } from "next/server";
@@ -5,7 +6,19 @@ import CoatCustomizer, { type CustomizerOption } from "./coat-customizer";
 
 const SUPPORTED_IMAGE_TYPES = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"]);
 
+const DISPLAY_NAMES: Record<string, string> = {
+  "coat-1": "Charcoal Pinstripe",
+  "coat-2": "Sage Corduroy",
+  "coat-3": "Camel Twill",
+  "button-1": "Gilded Crest",
+  "button-2": "Brushed Gold",
+  "button-3": "Dark Horn",
+  "button-4": "Ivory",
+};
+
 function labelFromFilename(filename: string) {
+  const key = path.parse(filename).name.toLowerCase();
+  if (DISPLAY_NAMES[key]) return DISPLAY_NAMES[key];
   return path.parse(filename).name
     .replace(/[-_]+/g, " ")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -32,10 +45,12 @@ async function getImages(folder: "coats" | "buttons"): Promise<CustomizerOption[
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
       .map((entry) => {
         const model = models.get(path.parse(entry.name).name.toLowerCase());
+        const thumbName = path.join(directory, "thumbs", entry.name);
         return {
           src: `/${folder}/${encodeURIComponent(entry.name)}`,
           name: labelFromFilename(entry.name),
           ...(model && { model: `/${folder}/${encodeURIComponent(model)}` }),
+          ...(existsSync(thumbName) && { thumb: `/${folder}/thumbs/${encodeURIComponent(entry.name)}` }),
         };
       });
   } catch (error) {
