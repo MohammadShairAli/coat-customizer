@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import { useState, Suspense, useEffect, useLayoutEffect, useRef } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, useGLTF, useProgress, Center, Environment, Lightformer } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { OrbitControls, useGLTF, useProgress, Center } from "@react-three/drei";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import * as THREE from "three";
 
@@ -19,6 +19,41 @@ const VIEW_MODES: { value: ViewMode; label: string }[] = [
 
 function CoatModel({ url }: { url: string }) {
   const { scene } = useGLTF(url);
+
+  useLayoutEffect(() => {
+    const root = scene as THREE.Object3D & { userData: { basePosition?: THREE.Vector3; baseScale?: THREE.Vector3 } };
+    if (!root.userData.basePosition) {
+      root.userData.basePosition = root.position.clone();
+      root.userData.baseScale = root.scale.clone();
+    }
+    root.position.copy(root.userData.basePosition);
+    root.scale.copy(root.userData.baseScale!);
+    root.updateMatrixWorld(true);
+
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    // Camel Twill is exported below the origin and shorter than the other coats, so the camera frames empty space.
+    const fit = size.y > 0.001 ? 0.72 / size.y : 1;
+    root.scale.multiplyScalar(fit);
+    root.position.multiplyScalar(fit).sub(center.multiplyScalar(fit));
+    root.updateMatrixWorld(true);
+
+    root.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of materials) {
+        const physical = mat as THREE.MeshPhysicalMaterial;
+        // The cloth ships with a full white sheen, which lifts the sage toward mint.
+        if (physical.isMeshPhysicalMaterial && physical.sheen > 0) {
+          physical.sheen = 0;
+          physical.needsUpdate = true;
+        }
+      }
+    });
+  }, [scene]);
+
   return <primitive object={scene} />;
 }
 
@@ -65,43 +100,42 @@ function ButtonModel({ selectedButtonOption }: { selectedButtonOption?: Customiz
   return <primitive object={scene} />;
 }
 
-// Large softbox in front of the suit, with a wider overhead wash. The photo is even studio light
-// and only a little brighter across the shoulders — a tight spotlight leaves the sleeves in a hole.
+// Blender: three area lights, power 70W, nothing else. Three.js area lights are in nits,
+// and Blender power is watts, so intensity = watts / (area × π).
+const BLENDER_AREA_WATTS = 70;
+
+function areaNits(width: number, height: number) {
+  return BLENDER_AREA_WATTS / (width * height * Math.PI);
+}
+
+function Exposure({ value }: { value: number }) {
+  const gl = useThree((state) => state.gl);
+  useLayoutEffect(() => {
+    gl.toneMappingExposure = value;
+  }, [gl, value]);
+  return null;
+}
+
 function StudioKey() {
-  const softbox = useRef<THREE.RectAreaLight>(null);
-  const spot = useRef<THREE.SpotLight>(null);
-  const spotTarget = useRef<THREE.Object3D>(null);
+  const overheadLeft = useRef<THREE.RectAreaLight>(null);
+  const overheadRight = useRef<THREE.RectAreaLight>(null);
+  const front = useRef<THREE.RectAreaLight>(null);
 
   useLayoutEffect(() => {
-    softbox.current?.lookAt(0, 0.02, 0);
-    if (spot.current && spotTarget.current) spot.current.target = spotTarget.current;
+    overheadLeft.current?.lookAt(0, 0.05, 0);
+    overheadRight.current?.lookAt(0, 0.05, 0);
+    front.current?.lookAt(0, 0.02, 0);
   }, []);
+
+  const wide = 2.4;
+  const frontWidth = 1.4;
+  const frontHeight = 1.6;
 
   return (
     <>
-      <hemisphereLight args={["#f6f3ee", "#c8c2b6", 0.36]} />
-      <directionalLight position={[0, 0.1, 2.5]} intensity={0.58} color="#f4f0ea" />
-
-      <rectAreaLight
-        ref={softbox}
-        position={[0, 0.72, 0.85]}
-        width={2.2}
-        height={1.25}
-        intensity={5.2}
-        color="#fff7f1"
-      />
-
-      <spotLight
-        ref={spot}
-        position={[0, 1.4, 0.48]}
-        angle={1.1}
-        penumbra={0.9}
-        intensity={2.8}
-        decay={2}
-        distance={5}
-        color="#fff6ee"
-      />
-      <object3D ref={spotTarget} position={[0, 0.12, 0.02]} />
+      <rectAreaLight ref={overheadLeft} position={[-1.15, 1.55, 0.55]} width={wide} height={wide} intensity={areaNits(wide, wide)} color="#ffffff" />
+      <rectAreaLight ref={overheadRight} position={[1.25, 1.75, -0.7]} width={wide} height={wide} intensity={areaNits(wide, wide)} color="#ffffff" />
+      <rectAreaLight ref={front} position={[0.18, 0.22, 1.05]} width={frontWidth} height={frontHeight} intensity={areaNits(frontWidth, frontHeight)} color="#ffffff" />
     </>
   );
 }
@@ -207,10 +241,11 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
               antialias: true,
               outputColorSpace: THREE.SRGBColorSpace,
               toneMapping: THREE.NeutralToneMapping,
-              toneMappingExposure: 1.08,
+              toneMappingExposure: 0.55,
               alpha: true,
             }}
           >
+            <Exposure value={0.55} />
             <StudioKey />
 
             {coatModel && (
@@ -218,19 +253,12 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
                 <group position={[0, -0.13, 0]}>
                   <Center key={coatModel}>
                     <CoatModel url={coatModel} />
-                    <ButtonModel selectedButtonOption={button} />
+                    {coatModel.includes("Coat-3") ? null : <ButtonModel selectedButtonOption={button} />}
                     <ModelReady url={coatModel} onReady={setReadyModel} />
                   </Center>
                 </group>
               </Suspense>
             )}
-
-            <Suspense fallback={null}>
-              <Environment preset="studio" environmentIntensity={0.24} resolution={256}>
-                <Lightformer form="rect" intensity={2.2} color="#fff6ee" position={[0, 1.85, 0.25]} scale={[2.6, 1, 1]} target={[0, 0.08, 0]} />
-                <Lightformer form="rect" intensity={0.4} color="#f3ece3" position={[0, 0.05, 1.8]} scale={[2.2, 1.4, 1]} target={[0, 0, 0]} />
-              </Environment>
-            </Suspense>
 
             <OrbitControls
               target={[0, 0.05, 0]}
