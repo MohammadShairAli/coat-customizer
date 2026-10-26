@@ -10,11 +10,19 @@ const DISPLAY_NAMES: Record<string, string> = {
   "coat-1": "Charcoal Pinstripe",
   "coat-2": "Sage Corduroy",
   "coat-3": "Camel Twill",
-  "button-1": "Gilded Crest",
-  "button-2": "Brushed Gold",
-  "button-3": "Dark Horn",
-  "button-4": "Ivory",
+  black: "Jet Black",
+  gray: "Slate Grey",
+  white: "Ivory White",
+  yellow: "Mustard",
 };
+
+// Picker order for coats; files not listed here follow in filename order.
+const COAT_ORDER = ["coat-3", "coat-2", "coat-1"];
+
+function coatRank(filename: string) {
+  const index = COAT_ORDER.indexOf(path.parse(filename).name.toLowerCase());
+  return index === -1 ? COAT_ORDER.length : index;
+}
 
 function labelFromFilename(filename: string) {
   const key = path.parse(filename).name.toLowerCase();
@@ -25,7 +33,7 @@ function labelFromFilename(filename: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-async function getImages(folder: "coats" | "buttons"): Promise<CustomizerOption[]> {
+async function getImages(folder: "coats"): Promise<CustomizerOption[]> {
   const directory = path.join(process.cwd(), "public", folder);
 
   try {
@@ -39,10 +47,12 @@ async function getImages(folder: "coats" | "buttons"): Promise<CustomizerOption[
     return entries
       .filter((entry) =>
         entry.isFile() &&
-        SUPPORTED_IMAGE_TYPES.has(path.extname(entry.name).toLowerCase()) &&
-        !(folder === "buttons" && entry.name.toLowerCase() === "placeholder.png")
+        SUPPORTED_IMAGE_TYPES.has(path.extname(entry.name).toLowerCase())
       )
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
+      .sort((a, b) =>
+        coatRank(a.name) - coatRank(b.name) ||
+        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+      )
       .map((entry) => {
         const model = models.get(path.parse(entry.name).name.toLowerCase());
         const thumbName = path.join(directory, "thumbs", entry.name);
@@ -60,8 +70,26 @@ async function getImages(folder: "coats" | "buttons"): Promise<CustomizerOption[
   }
 }
 
+// Buttons are cover photos only: they show in the picker and dress the 3D buttons, with no overlay on the coat photo.
+async function getButtons(): Promise<CustomizerOption[]> {
+  try {
+    const entries = await readdir(path.join(process.cwd(), "public", "buttons", "thumbs"), { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile() && SUPPORTED_IMAGE_TYPES.has(path.extname(entry.name).toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
+      .map((entry) => ({
+        src: `/buttons/thumbs/${encodeURIComponent(entry.name)}`,
+        name: labelFromFilename(entry.name),
+      }));
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 export default async function Home() {
   await connection();
-  const [coats, buttons] = await Promise.all([getImages("coats"), getImages("buttons")]);
+  const [coats, buttons] = await Promise.all([getImages("coats"), getButtons()]);
   return <CoatCustomizer coats={coats} buttons={buttons} />;
 }
