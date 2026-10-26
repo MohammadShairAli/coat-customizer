@@ -69,7 +69,8 @@ legend { width: 100%; margin-bottom: 16px; color: #666d69; }
   background:
     radial-gradient(circle at 50% 46%, #fffdf8 0%, #f3eee4 62%, #e4dcd0 100%);
 }
-.swatch.button img { object-fit: contain; padding: 10px; }
+/* Button photos are transparent PNGs with a ~10% margin built in; the shadow seats them on the backdrop */
+.swatch.button img { object-fit: contain; padding: 2px; filter: drop-shadow(0 6px 7px rgba(60, 45, 25, .28)) drop-shadow(0 1px 1.5px rgba(60, 45, 25, .3)); }
 .option > span:last-of-type { font-size: 12px; font-weight: 700; letter-spacing: .04em; }
 .pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 10px; margin-top: 14px; }
 .pagination span { color: #707772; font-size: 10px; letter-spacing: .08em; text-align: center; text-transform: uppercase; }
