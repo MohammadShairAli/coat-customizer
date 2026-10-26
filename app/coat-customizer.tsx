@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useState, Suspense, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, useGLTF, useProgress, Center } from "@react-three/drei";
+import { OrbitControls, useGLTF, useProgress, useTexture, Center } from "@react-three/drei";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import * as THREE from "three";
 
@@ -49,8 +49,8 @@ const MODEL_CLOTH: Record<string, ClothSettings> = {
     clothNodes: ["_gltfNode_18003", "_gltfNode_27002", "_gltfNode_39002", "_gltfNode_42002", "_gltfNode_24002"],
     tieNode: "_gltfNode_36002",
     buttonNodes: ["button", "button001"],
-    columns: 72,
-    lines: 230,
+    columns: 124,
+    lines: 402,
     contrast: 0.14,
     saturation: 0.6,
     tint: [0.76, 0.74, 0.71],
@@ -218,13 +218,14 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
 
 // buttons.glb is one disc for every style. The photo overlays carry the real engraving;
 // the 3D view follows the choice with the matching metal or horn finish.
-type ButtonFinish = { color: string; metalness: number; roughness: number; env: number };
+// Gilded Crest is too detailed for a flat finish, so its disc wears the crest photo instead.
+type ButtonFinish = { color: string; metalness: number; roughness: number; env: number; face?: boolean };
 
 const BUTTON_FINISHES: Record<string, ButtonFinish> = {
-  "button-1": { color: "#e2c56a", metalness: 0.95, roughness: 0.2, env: 1.35 },
+  "button-1": { color: "#e2c56a", metalness: 0.95, roughness: 0.2, env: 1.35, face: true },
   "button-2": { color: "#c6a15a", metalness: 0.72, roughness: 0.46, env: 0.9 },
   "button-3": { color: "#2a2624", metalness: 0.28, roughness: 0.34, env: 0.55 },
-  "button-4": { color: "#f3eee4", metalness: 0.02, roughness: 0.48, env: 0.35 },
+  "button-4": { color: "#a39780", metalness: 0.02, roughness: 0.65, env: 0.12 },
 };
 
 function buttonFinish(option?: CustomizerOption) {
@@ -232,8 +233,34 @@ function buttonFinish(option?: CustomizerOption) {
   return BUTTON_FINISHES[key] ?? BUTTON_FINISHES["button-1"];
 }
 
+const BUTTON_FACE = "/buttons/thumbs/Button-1.png";
+
+function setupButtonFace(texture: THREE.Texture) {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  // The crest fills a ~370px circle in the 480px thumb; crop the white margin so it covers the disc.
+  texture.repeat.set(0.77, 0.77);
+  texture.offset.set(0.115, 0.105);
+  texture.anisotropy = 8;
+}
+
+// buttons.glb ships quantized UVs that do not frame the face, so project the disc face (XY) straight on.
+function planarFaceUVs(geometry: THREE.BufferGeometry) {
+  if (geometry.userData.faceUVs) return;
+  geometry.computeBoundingBox();
+  const { min, max } = geometry.boundingBox!;
+  const pos = geometry.getAttribute("position");
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    uv[i * 2] = (pos.getX(i) - min.x) / (max.x - min.x);
+    uv[i * 2 + 1] = (pos.getY(i) - min.y) / (max.y - min.y);
+  }
+  geometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  geometry.userData.faceUVs = true;
+}
+
 function ButtonModel({ selectedButtonOption }: { selectedButtonOption?: CustomizerOption }) {
   const { scene } = useGLTF("/buttons/buttons.glb");
+  const face = useTexture(BUTTON_FACE, setupButtonFace);
   const finishKey = selectedButtonOption?.src;
 
   useLayoutEffect(() => {
@@ -246,17 +273,20 @@ function ButtonModel({ selectedButtonOption }: { selectedButtonOption?: Customiz
 
       const name = mat.name.toLowerCase();
       if (name.includes("button")) {
-        mat.color.set(finish.color);
-        mat.metalness = finish.metalness;
-        mat.roughness = finish.roughness;
-        mat.envMapIntensity = finish.env;
+        if (finish.face) planarFaceUVs(mesh.geometry);
+        mat.map = finish.face ? face : null;
+        // The photo already carries the gold, so the tint goes white and the metal sheen is eased off
+        mat.color.set(finish.face ? "#ffffff" : finish.color);
+        mat.metalness = finish.face ? 0.55 : finish.metalness;
+        mat.roughness = finish.face ? 0.35 : finish.roughness;
+        mat.envMapIntensity = finish.face ? 0.9 : finish.env;
       } else {
         mat.metalness = 0;
         mat.roughness = 0.7;
       }
       mat.needsUpdate = true;
     });
-  }, [scene, finishKey, selectedButtonOption]);
+  }, [scene, face, finishKey, selectedButtonOption]);
 
   return <primitive object={scene} />;
 }
@@ -344,6 +374,7 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
     if (previewIsLoading) return;
     if (coatModel) useGLTF.preload(coatModel);
     useGLTF.preload("/buttons/buttons.glb");
+    useTexture.preload(BUTTON_FACE);
   }, [previewIsLoading, coatModel]);
 
   function markImageLoaded(src: string) {
