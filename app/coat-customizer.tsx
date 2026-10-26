@@ -23,6 +23,18 @@ const VIEW_MODES: { value: ViewMode; label: string }[] = [
   { value: "image", label: "Image" },
 ];
 
+// The photos have no buttons, so the chosen button is laid over them where the 3D buttons project with the
+// camera above (percent of the preview box, centre of each button). Coat-3 has its own modelled buttons;
+// the others wear buttons.glb.
+type PhotoButton = { x: number; y: number };
+const PHOTO_BUTTONS: Record<string, PhotoButton[]> = {
+  "Coat-3": [{ x: 51.77, y: 48.86 }, { x: 47.6, y: 61.7 }],
+};
+// The lower button sits back from the photo's painted buttonhole, leaving the slit showing as on the 3D coat.
+const DEFAULT_PHOTO_BUTTONS: PhotoButton[] = [{ x: 51.37, y: 48.3 }, { x: 47.6, y: 61.7 }];
+// The 3D button is 2.87% of the box wide; the button fills the middle 80% of its PNG.
+const PHOTO_BUTTON_WIDTH = 2.87 / 0.8;
+
 function modelName(url?: string) {
   return url?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
 }
@@ -718,12 +730,12 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
         {viewMode === "image" ? (
           <div className={`preview ${previewIsLoading ? "isLoading" : ""}`} aria-busy={previewIsLoading}>
             {previewIsLoading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing your coat</span></div>}
-            <PhotoLayers coat={coat} onLoad={markImageLoaded} />
+            <PhotoLayers coat={coat} button={button} onLoad={markImageLoaded} />
             {!coat && <p className="emptyPreview">Add a coat image to<br /><code>public/coats</code></p>}
           </div>
         ) : (
         <div className={`preview3d ${modelPreviewIsLoading ? "isLoading" : ""}`} aria-busy={modelPreviewIsLoading}>
-          <PhotoLayers coat={coat} onLoad={markImageLoaded} />
+          <PhotoLayers coat={coat} button={button} onLoad={markImageLoaded} />
           {modelPreviewIsLoading && (
             <div className="previewLoader" role="status">
               <span className="spinner" />
@@ -789,8 +801,23 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
   );
 }
 
-function PhotoLayers({ coat, onLoad }: { coat?: CustomizerOption; onLoad: (src: string) => void }) {
-  return coat ? <Image src={coat.src} alt={`${coat.name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => onLoad(coat.src)} /> : null;
+function PhotoLayers({ coat, button, onLoad }: { coat?: CustomizerOption; button?: CustomizerOption; onLoad: (src: string) => void }) {
+  if (!coat) return null;
+  const positions = PHOTO_BUTTONS[modelName(coat.model ?? coat.src)] ?? DEFAULT_PHOTO_BUTTONS;
+  return (
+    <>
+      <Image src={coat.src} alt={`${coat.name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => onLoad(coat.src)} />
+      {button && positions.map((position, index) => (
+        <span
+          key={index}
+          className="layer photoButton"
+          style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${PHOTO_BUTTON_WIDTH}%` }}
+        >
+          <Image src={button.src} alt={index === 0 ? `${button.name} buttons` : ""} fill sizes="48px" />
+        </span>
+      ))}
+    </>
+  );
 }
 
 function OptionGroup({ title, options, selected, onSelect, type, emptyMessage }: {

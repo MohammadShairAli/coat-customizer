@@ -70,7 +70,7 @@ async function getImages(folder: "coats"): Promise<CustomizerOption[]> {
   }
 }
 
-// Buttons are cover photos only: they show in the picker and dress the 3D buttons, with no overlay on the coat photo.
+// Buttons are cover photos: they show in the picker, dress the 3D buttons and are laid over the coat photo.
 async function getButtons(): Promise<CustomizerOption[]> {
   try {
     const entries = await readdir(path.join(process.cwd(), "public", "buttons", "thumbs"), { withFileTypes: true });
