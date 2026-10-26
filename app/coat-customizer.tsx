@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, Suspense, useEffect, useLayoutEffect, useRef } from "react";
+import { useState, Suspense, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, useProgress, Center } from "@react-three/drei";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
@@ -12,38 +12,183 @@ RectAreaLightUniformsLib.init();
 export type CustomizerOption = { src: string; name: string; model?: string; thumb?: string };
 type ViewMode = "3d" | "image";
 const ITEMS_PER_PAGE = 10;
+// Framed so the front view lines up with the product photo in the same box: switching modes should feel like the photo coming alive.
+const CAMERA_TARGET: [number, number, number] = [0, 0.05, 0];
+const CAMERA_DISTANCE = 0.605;
+const CAMERA_FOV = 38;
+// The photo's coat sits slightly right of centre; a few millimetres of offset is invisible while rotating.
+const MODEL_OFFSET: [number, number, number] = [0.003, -0.12, 0];
 const VIEW_MODES: { value: ViewMode; label: string }[] = [
   { value: "3d", label: "3D" },
   { value: "image", label: "Image" },
 ];
 
-function CoatModel({ url }: { url: string }) {
+function modelName(url?: string) {
+  return url?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
+}
+
+// Coat-3 is one baked 4096 atlas shared by cloth, shirt, tie and mannequin. Its herringbone is ~3 texels
+// per twill line, so at preview size the mipmaps average it into a pebbly felt. The weave is redrawn
+// in the shader at the scale of the photo, and the meshes below are told apart by glTF node name.
+type ClothSettings = {
+  clothNodes: string[];
+  tieNode?: string;
+  // Coats with their own buttons modelled in; buttons.glb is not positioned for them
+  buttonNodes?: string[];
+  columns: number; // herringbone columns per UV unit
+  lines: number; // twill lines per UV unit
+  contrast: number;
+  saturation: number; // 1 keeps the bake's colour, lower moves the camel toward the photo's taupe
+  tint: [number, number, number];
+  normalScale: number;
+};
+
+const MODEL_CLOTH: Record<string, ClothSettings> = {
+  "Coat-3": {
+    // Jacket body, lapels, the two pocket flaps and the breast pocket welt
+    clothNodes: ["_gltfNode_18003", "_gltfNode_27002", "_gltfNode_39002", "_gltfNode_42002", "_gltfNode_24002"],
+    tieNode: "_gltfNode_36002",
+    buttonNodes: ["button", "button001"],
+    columns: 72,
+    lines: 230,
+    contrast: 0.14,
+    saturation: 0.6,
+    tint: [0.76, 0.74, 0.71],
+    normalScale: 0.35,
+  },
+};
+
+function weaveMaterial(source: THREE.MeshStandardMaterial, cloth: ClothSettings, anisotropy: number) {
+  const mat = source.clone();
+  mat.userData.retextured = true;
+  mat.normalScale.setScalar(cloth.normalScale);
+  if (mat.map) mat.map.anisotropy = anisotropy;
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.weaveColumns = { value: cloth.columns };
+    shader.uniforms.weaveLines = { value: cloth.lines };
+    shader.uniforms.weaveContrast = { value: cloth.contrast };
+    shader.uniforms.weaveSaturation = { value: cloth.saturation };
+    shader.uniforms.weaveTint = { value: new THREE.Vector3(...cloth.tint) };
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        uniform float weaveColumns;
+        uniform float weaveLines;
+        uniform float weaveContrast;
+        uniform float weaveSaturation;
+        uniform vec3 weaveTint;`,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+        {
+          // Shirt cuffs share the lapel mesh, so only saturated (camel) texels take the weave
+          float hi = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
+          float lo = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
+          float camel = smoothstep(0.3, 0.55, (hi - lo) / max(hi, 1e-4));
+
+          vec2 uv = vMapUv;
+          float column = uv.x * weaveColumns;
+          float across = fract(column) / weaveColumns;
+          // Neighbouring columns mirror, so the twill lines meet in chevrons
+          across = mod(floor(column), 2.0) < 1.0 ? across : 1.0 / weaveColumns - across;
+          float phase = (uv.y + across) * weaveLines;
+          // Fade the lines out before they shrink below a pixel, instead of letting them shimmer
+          float fade = 1.0 - smoothstep(0.35, 0.7, fwidth(phase));
+          float twill = sin(phase * 6.2831853) * fade;
+          float seam = smoothstep(0.08, 0.0, min(fract(column), 1.0 - fract(column))) * (1.0 - smoothstep(0.3, 0.6, fwidth(column)));
+
+          float luma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+          vec3 taupe = mix(vec3(luma), diffuseColor.rgb, weaveSaturation) * weaveTint;
+          vec3 woven = taupe * (1.0 + weaveContrast * twill - 0.08 * seam);
+          diffuseColor.rgb = mix(diffuseColor.rgb, woven, camel);
+        }`,
+      );
+  };
+  mat.customProgramCacheKey = () => "weave";
+  return mat;
+}
+
+function retextureCloth(scene: THREE.Object3D, cloth: ClothSettings, anisotropy: number) {
+  scene.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+    const source = mesh.material as THREE.MeshStandardMaterial;
+    if (!source.isMeshStandardMaterial || source.userData.retextured) return;
+
+    if (cloth.clothNodes.includes(mesh.name)) {
+      mesh.material = weaveMaterial(source, cloth, anisotropy);
+    } else if (mesh.name === cloth.tieNode) {
+      // The photo's tie is black silk; the bake has it grey. Keep the bake for its fold shading.
+      const tie = source.clone();
+      tie.userData.retextured = true;
+      tie.color.set("#0b0b0c");
+      tie.roughness = 0.8;
+      tie.roughnessMap = null;
+      mesh.material = tie;
+    }
+  });
+}
+
+function finishBuiltInButtons(scene: THREE.Object3D, nodes: string[], finish: ButtonFinish) {
+  scene.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || Array.isArray(mesh.material) || !nodes.includes(mesh.name)) return;
+    let mat = mesh.material as THREE.MeshStandardMaterial;
+    if (!mat.userData.buttonFinish) {
+      // The atlas paints these buttons brown horn; drop it so the chosen colour is not multiplied into it
+      mat = mat.clone();
+      mat.userData.buttonFinish = true;
+      mat.map = null;
+      mat.roughnessMap = null;
+      mesh.material = mat;
+    }
+    mat.color.set(finish.color);
+    mat.metalness = finish.metalness;
+    mat.roughness = finish.roughness;
+    mat.envMapIntensity = finish.env;
+    mat.needsUpdate = true;
+  });
+}
+
+function CoatModel({ url, button, children }: { url: string; button?: CustomizerOption; children?: ReactNode }) {
   const { scene } = useGLTF(url);
+  const fitGroup = useRef<THREE.Group>(null);
+  const maxAnisotropy = useThree((state) => state.gl.capabilities.getMaxAnisotropy());
 
   useLayoutEffect(() => {
-    const root = scene as THREE.Object3D & { userData: { basePosition?: THREE.Vector3; baseScale?: THREE.Vector3 } };
-    if (!root.userData.basePosition) {
-      root.userData.basePosition = root.position.clone();
-      root.userData.baseScale = root.scale.clone();
-    }
-    root.position.copy(root.userData.basePosition);
-    root.scale.copy(root.userData.baseScale!);
-    root.updateMatrixWorld(true);
+    const group = fitGroup.current;
+    if (!group) return;
+    group.position.set(0, 0, 0);
+    group.scale.setScalar(1);
+    group.updateMatrixWorld(true);
 
-    const box = new THREE.Box3().setFromObject(root);
+    // Fit is measured on the coat only, then applied to the group so the buttons move with it.
+    const box = new THREE.Box3().setFromObject(scene);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
     // Camel Twill is exported below the origin and shorter than the other coats, so the camera frames empty space.
     const fit = size.y > 0.001 ? 0.72 / size.y : 1;
-    root.scale.multiplyScalar(fit);
-    root.position.multiplyScalar(fit).sub(center.multiplyScalar(fit));
-    root.updateMatrixWorld(true);
+    group.scale.setScalar(fit);
+    group.position.copy(center.multiplyScalar(-fit));
+    group.updateMatrixWorld(true);
 
-    root.traverse((child) => {
+    scene.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of materials) {
+        const standard = mat as THREE.MeshStandardMaterial;
+        // Coat-1/2 export cloth and mannequin with metalness up to 1 (the packed MTL map's blue channel).
+        // With no environment to reflect, metal renders near black, so the charcoal suit came out as ink.
+        // The tie ("Fabric Pattern") is the exception: as metal it reads black like the photo, as cloth it turns grey.
+        const isTie = standard.name.toLowerCase().startsWith("fabric pattern");
+        if (standard.isMeshStandardMaterial && !isTie && (standard.metalness > 0 || standard.metalnessMap)) {
+          standard.metalness = 0;
+          standard.metalnessMap = null;
+          standard.needsUpdate = true;
+        }
         const physical = mat as THREE.MeshPhysicalMaterial;
         // The cloth ships with a full white sheen, which lifts the sage toward mint.
         if (physical.isMeshPhysicalMaterial && physical.sheen > 0) {
@@ -52,14 +197,30 @@ function CoatModel({ url }: { url: string }) {
         }
       }
     });
-  }, [scene]);
 
-  return <primitive object={scene} />;
+    const cloth = MODEL_CLOTH[modelName(url)];
+    if (cloth) retextureCloth(scene, cloth, maxAnisotropy);
+  }, [scene, url, maxAnisotropy]);
+
+  const buttonNodes = MODEL_CLOTH[modelName(url)]?.buttonNodes;
+  const finish = buttonFinish(button);
+  useLayoutEffect(() => {
+    if (buttonNodes) finishBuiltInButtons(scene, buttonNodes, finish);
+  }, [scene, buttonNodes, finish]);
+
+  return (
+    <group ref={fitGroup}>
+      <primitive object={scene} />
+      {children}
+    </group>
+  );
 }
 
 // buttons.glb is one disc for every style. The photo overlays carry the real engraving;
 // the 3D view follows the choice with the matching metal or horn finish.
-const BUTTON_FINISHES: Record<string, { color: string; metalness: number; roughness: number; env: number }> = {
+type ButtonFinish = { color: string; metalness: number; roughness: number; env: number };
+
+const BUTTON_FINISHES: Record<string, ButtonFinish> = {
   "button-1": { color: "#e2c56a", metalness: 0.95, roughness: 0.2, env: 1.35 },
   "button-2": { color: "#c6a15a", metalness: 0.72, roughness: 0.46, env: 0.9 },
   "button-3": { color: "#2a2624", metalness: 0.28, roughness: 0.34, env: 0.55 },
@@ -106,6 +267,14 @@ const BLENDER_AREA_WATTS = 70;
 
 function areaNits(width: number, height: number) {
   return BLENDER_AREA_WATTS / (width * height * Math.PI);
+}
+
+// The Blender scene was lit for the light cloths at 0.55. Charcoal's albedo is near black (~#1e1e22),
+// so at the same exposure it reads as ink instead of the grey in the photo.
+const MODEL_EXPOSURE: Record<string, number> = { "Coat-1": 1.15 };
+
+function modelExposure(url?: string) {
+  return MODEL_EXPOSURE[modelName(url)] ?? 0.55;
 }
 
 function Exposure({ value }: { value: number }) {
@@ -156,6 +325,7 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
   const [selectedCoat, setSelectedCoat] = useState(0);
   const [selectedButton, setSelectedButton] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("image");
+  const [autoRotate, setAutoRotate] = useState(true);
   const [loadedImages, setLoadedImages] = useState<Set<string>>(() => new Set());
   const [readyModel, setReadyModel] = useState<string | null>(null);
   const { active: modelIsLoading, progress: modelProgress } = useProgress();
@@ -215,16 +385,25 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
           ))}
         </div>
 
+        {viewMode === "3d" && coatModel && (
+          <button type="button" className="rotateToggle" onClick={() => setAutoRotate((on) => !on)} aria-pressed={autoRotate} aria-label="Auto-rotate model">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" strokeLinecap="round" />
+              <path d="M12.5 1.5v3h-3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Rotate
+          </button>
+        )}
+
         {viewMode === "image" ? (
           <div className={`preview ${previewIsLoading ? "isLoading" : ""}`} aria-busy={previewIsLoading}>
             {previewIsLoading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing your coat</span></div>}
-            {coat && <Image src={coat.src} alt={`${coat.name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => markImageLoaded(coat.src)} />}
-            {button && <Image key={button.src} src={button.src} alt={`${button.name} buttons`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer" onLoad={() => markImageLoaded(button.src)} />}
+            <PhotoLayers coat={coat} button={button} onLoad={markImageLoaded} />
             {!coat && <p className="emptyPreview">Add a coat image to<br /><code>public/coats</code></p>}
           </div>
         ) : (
-        /* Preview container: tall transparent box so the model has room to zoom without clipping */
         <div className={`preview3d ${modelPreviewIsLoading ? "isLoading" : ""}`} aria-busy={modelPreviewIsLoading}>
+          <PhotoLayers coat={coat} button={button} onLoad={markImageLoaded} />
           {modelPreviewIsLoading && (
             <div className="previewLoader" role="status">
               <span className="spinner" />
@@ -235,7 +414,7 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
           <Canvas
             className="modelCanvas"
             dpr={[1, 2]}
-            camera={{ position: [0, 0.05, 0.8], fov: 38 }}
+            camera={{ position: [CAMERA_TARGET[0], CAMERA_TARGET[1], CAMERA_DISTANCE], fov: CAMERA_FOV }}
             style={{ width: "100%", height: "100%", position: "absolute", inset: 0, pointerEvents: "auto", background: "transparent" }}
             gl={{
               antialias: true,
@@ -245,15 +424,16 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
               alpha: true,
             }}
           >
-            <Exposure value={0.55} />
+            <Exposure value={modelExposure(coatModel)} />
             <StudioKey />
 
             {coatModel && (
               <Suspense fallback={null}>
-                <group position={[0, -0.13, 0]}>
+                <group position={MODEL_OFFSET}>
                   <Center key={coatModel}>
-                    <CoatModel url={coatModel} />
-                    {coatModel.includes("Coat-3") ? null : <ButtonModel selectedButtonOption={button} />}
+                    <CoatModel url={coatModel} button={button}>
+                      {MODEL_CLOTH[modelName(coatModel)]?.buttonNodes ? null : <ButtonModel selectedButtonOption={button} />}
+                    </CoatModel>
                     <ModelReady url={coatModel} onReady={setReadyModel} />
                   </Center>
                 </group>
@@ -261,13 +441,15 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
             )}
 
             <OrbitControls
-              target={[0, 0.05, 0]}
+              target={CAMERA_TARGET}
               enableZoom={true}
               enableRotate={true}
               enablePan={false}
-              // Default camera sits at 0.8. Closer than this turns the pinstripe into a corduroy close-up.
-              minDistance={0.64}
-              maxDistance={1.35}
+              autoRotate={autoRotate}
+              autoRotateSpeed={1.2}
+              // Much closer than the photo framing turns the pinstripe into a corduroy close-up.
+              minDistance={CAMERA_DISTANCE * 0.8}
+              maxDistance={CAMERA_DISTANCE * 1.7}
             />
           </Canvas>
         </div>
@@ -283,6 +465,15 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
         </div>
       </aside>
     </main>
+  );
+}
+
+function PhotoLayers({ coat, button, onLoad }: { coat?: CustomizerOption; button?: CustomizerOption; onLoad: (src: string) => void }) {
+  return (
+    <>
+      {coat && <Image src={coat.src} alt={`${coat.name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => onLoad(coat.src)} />}
+      {button && <Image key={button.src} src={button.src} alt={`${button.name} buttons`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer buttonLayer" onLoad={() => onLoad(button.src)} />}
+    </>
   );
 }
 
