@@ -1,10 +1,11 @@
 "use client";
 
 import Image from "next/image";
-import { useState, Suspense, useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { useState, Suspense, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, useProgress, useTexture, Center } from "@react-three/drei";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import * as THREE from "three";
 
 RectAreaLightUniformsLib.init();
@@ -13,27 +14,43 @@ export type CustomizerOption = { src: string; name: string; model?: string; thum
 type ViewMode = "3d" | "image";
 const ITEMS_PER_PAGE = 10;
 // Framed so the front view lines up with the product photo in the same box: switching modes should feel like the photo coming alive.
+// The photos are shot on a long lens from just below the chest, so a short wide lens bowed the sleeves and lifted
+// the hem against them. Solved by matching the model's silhouette to the photo's alpha (98.7% overlap).
 const CAMERA_TARGET: [number, number, number] = [0, 0.05, 0];
-const CAMERA_DISTANCE = 0.605;
-const CAMERA_FOV = 38;
-// The photo's coat sits slightly right of centre; a few millimetres of offset is invisible while rotating.
-const MODEL_OFFSET: [number, number, number] = [0.003, -0.12, 0];
+const CAMERA_DISTANCE = 1.3564;
+const CAMERA_HEIGHT = -0.1125; // below the target, looking slightly up
+const CAMERA_FOV = 17.46;
+// The photo's coat sits slightly right of centre and turned a touch to its left; a few millimetres of offset is invisible while rotating.
+const MODEL_OFFSET: [number, number, number] = [0.0052, -0.1319, 0];
+const MODEL_YAW = THREE.MathUtils.degToRad(-2.33);
+// Height of the coat in the scene, so it fills the photo's frame
+const MODEL_HEIGHT = 0.7556;
 const VIEW_MODES: { value: ViewMode; label: string }[] = [
   { value: "3d", label: "3D" },
   { value: "image", label: "Image" },
 ];
 
 // The photos have no buttons, so the chosen button is laid over them where the 3D buttons project with the
-// camera above (percent of the preview box, centre of each button). Coat-3 has its own modelled buttons;
-// the others wear buttons.glb.
+// camera above (percent of the preview box, centre of each button). Coats 1–3 have their own modelled buttons;
+// any others wear buttons.glb.
 type PhotoButton = { x: number; y: number };
+// The lower button sits at the end of the photo's painted buttonhole, leaving the slit showing as on the 3D coat.
+const BUILT_IN_PHOTO_BUTTONS: PhotoButton[] = [{ x: 51.38, y: 48.13 }, { x: 48.84, y: 61.16 }];
 const PHOTO_BUTTONS: Record<string, PhotoButton[]> = {
-  "Coat-3": [{ x: 51.77, y: 48.86 }, { x: 47.6, y: 61.7 }],
+  "Coat-1": BUILT_IN_PHOTO_BUTTONS,
+  "Coat-2": BUILT_IN_PHOTO_BUTTONS,
+  "Coat-3": BUILT_IN_PHOTO_BUTTONS,
 };
-// The lower button sits back from the photo's painted buttonhole, leaving the slit showing as on the 3D coat.
 const DEFAULT_PHOTO_BUTTONS: PhotoButton[] = [{ x: 51.37, y: 48.3 }, { x: 47.6, y: 61.7 }];
-// The 3D button is 2.87% of the box wide; the button fills the middle 80% of its PNG.
-const PHOTO_BUTTON_WIDTH = 2.87 / 0.8;
+// The 3D button is 2.75% of the box wide; the button fills the middle 80% of its PNG.
+const PHOTO_BUTTON_WIDTH = 2.75 / 0.8;
+
+// Coats with their own buttons modelled in; buttons.glb is not positioned for them
+const MODEL_BUTTON_NODES: Record<string, string[]> = {
+  "Coat-1": ["button", "button001"],
+  "Coat-2": ["button", "button001"],
+  "Coat-3": ["button", "button001"],
+};
 
 function modelName(url?: string) {
   return url?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
@@ -45,8 +62,6 @@ function modelName(url?: string) {
 type ClothSettings = {
   clothNodes: string[];
   tieNode?: string;
-  // Coats with their own buttons modelled in; buttons.glb is not positioned for them
-  buttonNodes?: string[];
   columns: number; // herringbone columns per UV unit
   lines: number; // twill lines per UV unit
   contrast: number;
@@ -60,7 +75,6 @@ const MODEL_CLOTH: Record<string, ClothSettings> = {
     // Jacket body, lapels, the two pocket flaps and the breast pocket welt
     clothNodes: ["_gltfNode_18003", "_gltfNode_27002", "_gltfNode_39002", "_gltfNode_42002", "_gltfNode_24002"],
     tieNode: "_gltfNode_36002",
-    buttonNodes: ["button", "button001"],
     columns: 124,
     lines: 402,
     contrast: 0.14,
@@ -80,6 +94,7 @@ type TiledClothSettings = {
   stripes: number; // stripes per tile in the map
   stripePhase: number; // where the map's light stripe peaks, so the drawn one lands on it
   stripeContrast: number;
+  mapContrast: number; // how much of the map's light/dark survives around its average colour (1 = untouched)
   normalScale: number;
   tint: [number, number, number]; // linear multiplier on the map, pulls the mint toward the photo's grey sage
 };
@@ -90,45 +105,125 @@ const MODEL_TILED_CLOTH: Record<string, TiledClothSettings> = {
     repeat: 4,
     stripes: 114,
     stripePhase: 2.78,
-    stripeContrast: 0.11,
-    normalScale: 0.45,
-    tint: [0.86, 0.82, 0.92],
+    // Contrast removed: no drawn stripe, the map flattened to its average colour, no wale relief
+    stripeContrast: 0.24,
+    mapContrast: 0,
+    normalScale: 0.55,
+    tint: [0.78, 0.81, 0.72],
   },
 };
 
-// Coat-1's "Plain Black Velvet" already tiles at the photo's stripe count, but its normal map cuts each
-// stripe as a deep groove, so under the overhead key the pinstripe reads as a ribbed corduroy. The photo's
-// cloth is flat with the chevrons only showing in the weave, and darker and cooler than the lit map.
+// Coat-1 is re-exported as one baked atlas ("Material.001") shared by cloth, shirt, tie and mannequin, so
+// the parts are told apart by glTF node name as on Coat-3. The bake's charcoal and tie are already near
+// black; what greys them is the default 4% specular, which under the key and fills washes over dark cloth
+// as much light as the albedo returns. Each part gets its own physical material with that turned down.
 type ClothFinish = {
-  material: string; // material name prefix
-  normalScale: number;
+  clothNodes: string[];
+  shirtNode: string;
+  tieNode: string;
+  normalScale: number; // the bake's normals cut the pinstripe as a deep groove
   tint: [number, number, number]; // linear multiplier on the map
+  specular: number;
+  roughness: number; // multiplier on the bake's roughness map: lower tightens the highlights into a glint
+  // Strength of the studio reflection on the cloth alone, which gives the shine something to catch
+  reflection: number;
+  // The photo's worsted catches the key as a soft shine across the shoulders, sleeves and folds
+  sheen: { amount: number; color: [number, number, number]; roughness: number };
+  shirt: [number, number, number]; // the bake's shirt is a dim warm grey against the photo's white
 };
 
 const MODEL_CLOTH_FINISH: Record<string, ClothFinish> = {
   "Coat-1": {
-    material: "plain black velvet",
-    normalScale: 0.35,
-    tint: [0.62, 0.65, 0.63],
+    // Jacket body, lapels, the two pocket flaps and the breast pocket welt
+    clothNodes: ["_gltfNode_18", "_gltfNode_27", "_gltfNode_39", "_gltfNode_42", "_gltfNode_24"],
+    shirtNode: "_gltfNode_60",
+    tieNode: "_gltfNode_36",
+    // Up from 0.3, which flattened the weave; past ~0.6 the pinstripe cuts in as a groove again
+    normalScale: 0.58,
+    tint: [0.8, 0.82, 0.88],
+    specular: 0.6,
+    roughness: 0.65,
+    reflection: 0.35,
+    // Neutral grey so the shine stays silvery rather than lifting the charcoal toward blue
+    sheen: { amount: 1, color: [0.42, 0.42, 0.44], roughness: 0.35 },
+    shirt: [1.5, 1.52, 1.58],
   },
 };
+
+function bakedPart(source: THREE.MeshStandardMaterial, color: [number, number, number], specular: number, normalScale?: number) {
+  const mat = new THREE.MeshPhysicalMaterial({
+    map: source.map,
+    normalMap: source.normalMap,
+    normalScale: source.normalScale.clone(),
+    roughnessMap: source.roughnessMap,
+    roughness: source.roughness,
+    side: source.side,
+    specularIntensity: specular,
+  });
+  if (normalScale !== undefined) {
+    // The loader may have flipped y for missing tangents, so keep each sign
+    mat.normalScale.set(Math.sign(mat.normalScale.x) * normalScale, Math.sign(mat.normalScale.y) * normalScale);
+  }
+  mat.color.setRGB(...color);
+  mat.userData.retextured = true;
+  return mat;
+}
+
+function finishBakedCloth(scene: THREE.Object3D, finish: ClothFinish, anisotropy: number, envMap: THREE.Texture) {
+  scene.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh || Array.isArray(mesh.material)) return;
+    const source = mesh.material as THREE.MeshStandardMaterial;
+    // The scene is cached across canvases, so a finished cloth only needs the new canvas's reflection
+    if (source.userData.studioCloth) source.envMap = envMap;
+    if (!source.isMeshStandardMaterial || source.userData.retextured) return;
+
+    if (finish.clothNodes.includes(mesh.name)) {
+      const cloth = bakedPart(source, finish.tint, finish.specular, finish.normalScale);
+      // Without it the herringbone smears to a flat grey wherever the cloth turns from the camera
+      for (const map of [cloth.map, cloth.normalMap, cloth.roughnessMap]) if (map) map.anisotropy = anisotropy;
+      cloth.roughness = finish.roughness;
+      cloth.envMap = envMap;
+      cloth.envMapIntensity = finish.reflection;
+      cloth.userData.studioCloth = true;
+      cloth.sheen = finish.sheen.amount;
+      cloth.sheenColor.setRGB(...finish.sheen.color);
+      cloth.sheenRoughness = finish.sheen.roughness;
+      mesh.material = cloth;
+    } else if (mesh.name === finish.shirtNode) {
+      mesh.material = bakedPart(source, finish.shirt, 0.5);
+    } else if (mesh.name === finish.tieNode) {
+      // The photo's tie is black silk; keep the bake for its fold shading
+      const tie = bakedPart(source, [0.35, 0.35, 0.36], 0.3);
+      tie.roughness = 0.8;
+      tie.roughnessMap = null;
+      mesh.material = tie;
+    }
+  });
+}
 
 function stripeShader(cloth: TiledClothSettings) {
   return (shader: THREE.WebGLProgramParametersWithUniforms) => {
     shader.uniforms.stripeCount = { value: cloth.stripes };
     shader.uniforms.stripePhase = { value: cloth.stripePhase };
     shader.uniforms.stripeContrast = { value: cloth.stripeContrast };
+    shader.uniforms.mapContrast = { value: cloth.mapContrast };
     shader.fragmentShader = shader.fragmentShader
       .replace(
         "#include <common>",
         `#include <common>
         uniform float stripeCount;
         uniform float stripePhase;
-        uniform float stripeContrast;`,
+        uniform float stripeContrast;
+        uniform float mapContrast;`,
       )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
+        #ifdef USE_MAP
+          // The smallest mip is the map's average colour; pull each texel toward it
+          diffuseColor.rgb = mix( diffuse * textureLod( map, vMapUv, 16.0 ).rgb, diffuseColor.rgb, mapContrast );
+        #endif
         {
           float phase = vMapUv.x * stripeCount;
           // Fade out before a stripe shrinks under two pixels, instead of letting it shimmer
@@ -407,7 +502,18 @@ const TIE_SHIFT = new THREE.Color(0.35, 0.35, 0.35);
 function CoatModel({ url, button, children }: { url: string; button?: CustomizerOption; children?: ReactNode }) {
   const { scene } = useGLTF(url);
   const fitGroup = useRef<THREE.Group>(null);
-  const maxAnisotropy = useThree((state) => state.gl.capabilities.getMaxAnisotropy());
+  const gl = useThree((state) => state.gl);
+  const maxAnisotropy = gl.capabilities.getMaxAnisotropy();
+  // A soft studio room for the cloth to reflect, kept off scene.environment so the other coats are untouched
+  const studioEnv = useMemo(() => {
+    const pmrem = new THREE.PMREMGenerator(gl);
+    const room = new RoomEnvironment();
+    const texture = pmrem.fromScene(room, 0.04).texture;
+    room.dispose();
+    pmrem.dispose();
+    return texture;
+  }, [gl]);
+  useEffect(() => () => studioEnv.dispose(), [studioEnv]);
 
   useLayoutEffect(() => {
     const group = fitGroup.current;
@@ -421,7 +527,7 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
     // Camel Twill is exported below the origin and shorter than the other coats, so the camera frames empty space.
-    const fit = size.y > 0.001 ? 0.72 / size.y : 1;
+    const fit = size.y > 0.001 ? MODEL_HEIGHT / size.y : 1;
     group.scale.setScalar(fit);
     group.position.copy(center.multiplyScalar(-fit));
     group.updateMatrixWorld(true);
@@ -459,11 +565,6 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
           standard.color.multiply(prop);
           standard.userData.photoMatched = true;
         }
-        // Set rather than multiplied, so the cached scene does not darken on every mount
-        if (clothFinish && standard.isMeshStandardMaterial && standard.name.toLowerCase().startsWith(clothFinish.material)) {
-          standard.normalScale.set(Math.sign(standard.normalScale.x) * clothFinish.normalScale, Math.sign(standard.normalScale.y) * clothFinish.normalScale);
-          standard.color.setRGB(...clothFinish.tint);
-        }
         if (tiled && physical.name === tiled.material) {
           evenClothUVs(mesh);
           retileCloth(physical, tiled, maxAnisotropy);
@@ -473,9 +574,10 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
 
     const cloth = MODEL_CLOTH[modelName(url)];
     if (cloth) retextureCloth(scene, cloth, maxAnisotropy);
-  }, [scene, url, maxAnisotropy]);
+    if (clothFinish) finishBakedCloth(scene, clothFinish, maxAnisotropy, studioEnv);
+  }, [scene, url, maxAnisotropy, studioEnv]);
 
-  const buttonNodes = MODEL_CLOTH[modelName(url)]?.buttonNodes;
+  const buttonNodes = MODEL_BUTTON_NODES[modelName(url)];
   const finish = buttonFinish(button);
   useLayoutEffect(() => {
     if (buttonNodes) finishBuiltInButtons(scene, buttonNodes, finish);
@@ -570,38 +672,60 @@ function areaNits(width: number, height: number) {
   return BLENDER_AREA_WATTS / (width * height * Math.PI);
 }
 
-// The Blender scene was lit for the light cloths at 0.55. Charcoal's albedo is near black (~#1e1e22),
-// so at the same exposure it reads as ink instead of the grey in the photo.
-const MODEL_EXPOSURE: Record<string, number> = { "Coat-1": 1.15 };
-
-function modelExposure(url?: string) {
-  return MODEL_EXPOSURE[modelName(url)] ?? 0.55;
-}
-
-function Exposure({ value }: { value: number }) {
-  const gl = useThree((state) => state.gl);
-  useLayoutEffect(() => {
-    gl.toneMappingExposure = value;
-  }, [gl, value]);
-  return null;
-}
-
 // Area lights cast no shadows in three.js, so on their own the coat reads flat. The photo is lit from
 // above: the collar, lapels and the mannequin cap throw soft shadows down, and the cloth falls off toward
 // the hem and sides. A soft overhead key carries that; the area lights stay on as wrap and fill.
-const KEY_INTENSITY = 5.2;
-const FILL_SCALE = 0.85;
+type Look = {
+  toneMapping: THREE.ToneMapping;
+  exposure: number;
+  key: number; // key intensity
+  keyX: number; // key's side: negative lights the viewer's left, as in the photos
+  keyZ?: number; // key's depth: smaller sits it more overhead, so the light falls from shoulders to hem
+  fill: number; // scale on the Blender area lights
+  front?: number; // scale on the front area light alone, so the overhead fills can drop without darkening the chest
+  back?: number; // scale on the rear area light; every other light sits in front or overhead, so the back falls to black without it
+};
 
-function StudioKey() {
+// The Blender scene was lit for the light cloths at 0.55. Camel Twill is tuned against its photo on this look.
+const DEFAULT_LOOK: Look = { toneMapping: THREE.NeutralToneMapping, exposure: 0.55, key: 5.2, keyX: 0.3, fill: 0.85 };
+
+// The photos are rendered through Blender's AgX view, which mutes the sage's mint and the wood's orange that
+// Neutral keeps, and lit from the viewer's left: the left sleeve reads 10–15 L brighter than the right.
+const MODEL_LOOK: Record<string, Look> = {
+  // Fill kept low so the sides and the cloth under the lapels fall off into shadow as in the photo;
+  // the key carries more of the light than the fills for a punchier light-to-shadow contrast
+  "Coat-2": { toneMapping: THREE.AgXToneMapping, exposure: 0.58, key: 9, keyX: -0.9, fill: 0.26 },
+  // Charcoal's albedo is near black, but at the sage's exposure it rendered mid-grey (L 40 against the photo's 21)
+  // Key raised overhead and the fills lowered, so the shoulders and chest catch the light and the hem falls off.
+  // The area fills wash the cloth flat (the faded look against the photo), so they stay low and the key carries it
+  "Coat-1": { toneMapping: THREE.AgXToneMapping, exposure: 0.26, key: 12, keyX: -0.5, keyZ: 0.3, fill: 0.14, front: 0.28 },
+};
+
+function modelLook(url?: string) {
+  return MODEL_LOOK[modelName(url)] ?? DEFAULT_LOOK;
+}
+
+function ToneMapping({ look }: { look: Look }) {
+  const gl = useThree((state) => state.gl);
+  useLayoutEffect(() => {
+    gl.toneMapping = look.toneMapping;
+    gl.toneMappingExposure = look.exposure;
+  }, [gl, look]);
+  return null;
+}
+
+function StudioKey({ look }: { look: Look }) {
   const overheadLeft = useRef<THREE.RectAreaLight>(null);
   const overheadRight = useRef<THREE.RectAreaLight>(null);
   const front = useRef<THREE.RectAreaLight>(null);
+  const back = useRef<THREE.RectAreaLight>(null);
   const key = useRef<THREE.DirectionalLight>(null);
 
   useLayoutEffect(() => {
     overheadLeft.current?.lookAt(0, 0.05, 0);
     overheadRight.current?.lookAt(0, 0.05, 0);
     front.current?.lookAt(0, 0.02, 0);
+    back.current?.lookAt(0, 0.02, 0);
 
     const light = key.current;
     if (!light) return;
@@ -626,8 +750,8 @@ function StudioKey() {
     <>
       <directionalLight
         ref={key}
-        position={[0.3, 2, 1.4]}
-        intensity={KEY_INTENSITY}
+        position={[look.keyX, 2, look.keyZ ?? 1.4]}
+        intensity={look.key}
         color="#ffffff"
         castShadow
         shadow-mapSize={[2048, 2048]}
@@ -636,9 +760,10 @@ function StudioKey() {
         shadow-normalBias={0.0015}
         shadow-radius={4}
       />
-      <rectAreaLight ref={overheadLeft} position={[-1.15, 1.55, 0.55]} width={wide} height={wide} intensity={areaNits(wide, wide) * FILL_SCALE} color="#ffffff" />
-      <rectAreaLight ref={overheadRight} position={[1.25, 1.75, -0.7]} width={wide} height={wide} intensity={areaNits(wide, wide) * FILL_SCALE} color="#ffffff" />
-      <rectAreaLight ref={front} position={[0.18, 0.22, 1.05]} width={frontWidth} height={frontHeight} intensity={areaNits(frontWidth, frontHeight) * FILL_SCALE * 1.15} color="#ffffff" />
+      <rectAreaLight ref={overheadLeft} position={[-1.15, 1.55, 0.55]} width={wide} height={wide} intensity={areaNits(wide, wide) * look.fill} color="#ffffff" />
+      <rectAreaLight ref={overheadRight} position={[1.25, 1.75, -0.7]} width={wide} height={wide} intensity={areaNits(wide, wide) * look.fill} color="#ffffff" />
+      <rectAreaLight ref={front} position={[0.18, 0.22, 1.05]} width={frontWidth} height={frontHeight} intensity={areaNits(frontWidth, frontHeight) * (look.front ?? look.fill) * 1.15} color="#ffffff" />
+      <rectAreaLight ref={back} position={[-0.18, 0.4, -1.05]} width={frontWidth} height={frontHeight} intensity={areaNits(frontWidth, frontHeight) * (look.back ?? look.front ?? look.fill)} color="#ffffff" />
     </>
   );
 }
@@ -747,25 +872,25 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
             className="modelCanvas"
             dpr={[1, 2]}
             shadows={{ type: THREE.PCFShadowMap }}
-            camera={{ position: [CAMERA_TARGET[0], CAMERA_TARGET[1], CAMERA_DISTANCE], fov: CAMERA_FOV }}
+            camera={{ position: [CAMERA_TARGET[0], CAMERA_TARGET[1] + CAMERA_HEIGHT, CAMERA_DISTANCE], fov: CAMERA_FOV }}
             style={{ width: "100%", height: "100%", position: "absolute", inset: 0, pointerEvents: "auto", background: "transparent" }}
             gl={{
               antialias: true,
               outputColorSpace: THREE.SRGBColorSpace,
-              toneMapping: THREE.NeutralToneMapping,
+              toneMapping: DEFAULT_LOOK.toneMapping,
               toneMappingExposure: 0.55,
               alpha: true,
             }}
           >
-            <Exposure value={modelExposure(coatModel)} />
-            <StudioKey />
+            <ToneMapping look={modelLook(coatModel)} />
+            <StudioKey look={modelLook(coatModel)} />
 
             {coatModel && (
               <Suspense fallback={null}>
-                <group position={MODEL_OFFSET}>
+                <group position={MODEL_OFFSET} rotation={[0, MODEL_YAW, 0]}>
                   <Center key={coatModel}>
                     <CoatModel url={coatModel} button={button}>
-                      {MODEL_CLOTH[modelName(coatModel)]?.buttonNodes || !button ? null : <ButtonModel selectedButtonOption={button} />}
+                      {MODEL_BUTTON_NODES[modelName(coatModel)] || !button ? null : <ButtonModel selectedButtonOption={button} />}
                     </CoatModel>
                     <ModelReady url={coatModel} onReady={setReadyModel} />
                   </Center>
