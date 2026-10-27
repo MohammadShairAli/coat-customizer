@@ -48,26 +48,25 @@ h1 { max-width: 420px; margin: 0; font-family: Georgia, "Times New Roman", serif
 .emptyPreview { position: absolute; inset: 0; display: grid; place-content: center; margin: 0; color: #707772; text-align: center; line-height: 1.8; }
 .emptyPreview code { color: var(--ink); }
 
-.controls { display: flex; flex-direction: column; justify-content: center; gap: 36px; border-left: 1px solid var(--line); background: rgba(255, 255, 255, .18); overflow-y: auto; }
+.controls { display: flex; flex-direction: column; justify-content: center; gap: 24px; padding-block: clamp(24px, 4vh, 48px); border-left: 1px solid var(--line); background: rgba(255, 255, 255, .18); overflow-y: auto; }
 .optionGroup { margin: 0; padding: 0; border: 0; }
 .emptyOptions { margin: 0; padding: 18px; color: #707772; border: 1px dashed var(--line); font-size: 13px; }
-legend { width: 100%; margin-bottom: 16px; color: #666d69; }
-.optionGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+legend { width: 100%; margin-bottom: 12px; color: #666d69; }
+.optionGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .optionGrid.scrollable { max-height: 276px; padding-right: 8px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
 .optionGrid.scrollable::-webkit-scrollbar { width: 5px; }
 .optionGrid.scrollable::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 10px; }
-.option { position: relative; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; padding: 10px 10px 14px; color: #5b625e; background: transparent; border: 1px solid var(--line); cursor: pointer; transition: border-color .2s, background .2s, transform .2s; }
+.option { position: relative; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 8px 8px 10px; color: #5b625e; background: transparent; border: 1px solid var(--line); cursor: pointer; transition: border-color .2s, background .2s, transform .2s; }
 .option:hover { transform: translateY(-2px); border-color: var(--ink); }
 .option:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .option.selected { color: var(--ink); background: rgba(255,255,255,.55); border-color: var(--ink); }
-.option i { position: absolute; right: 10px; bottom: 17px; width: 7px; height: 7px; border-radius: 50%; background: transparent; }
+.option i { position: absolute; right: 8px; bottom: 13px; width: 7px; height: 7px; border-radius: 50%; background: transparent; }
 .option.selected i { background: var(--accent); }
-.swatch { position: relative; width: 100%; height: 92px; overflow: hidden; background: #e7e1d5; }
+.swatch { position: relative; width: 100%; height: 64px; overflow: hidden; background: #e7e1d5; }
 .swatch img { object-fit: contain; }
 .swatch.coat img { padding: 5px; }
 .swatch.button {
-  height: auto;
-  aspect-ratio: 1;
+  height: 64px;
   background:
     radial-gradient(circle at 50% 46%, #fffdf8 0%, #f3eee4 62%, #e4dcd0 100%);
 }
@@ -79,7 +78,7 @@ legend { width: 100%; margin-bottom: 16px; color: #666d69; }
 .pagination button { padding: 8px; color: var(--ink); background: transparent; border: 1px solid var(--line); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
 .pagination button:disabled { color: #a5a8a6; cursor: not-allowed; opacity: .55; }
 .pagination button:not(:disabled):hover { border-color: var(--ink); }
-.selectionSummary { padding-top: 22px; border-top: 1px solid var(--line); }
+.selectionSummary { padding-top: 16px; border-top: 1px solid var(--line); }
 .selectionSummary span { display: block; margin-bottom: 8px; color: #777d79; }
 .selectionSummary strong { font-family: Georgia, serif; font-size: 20px; font-weight: 400; }
 
