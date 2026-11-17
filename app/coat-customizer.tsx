@@ -1117,6 +1117,14 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
   const previousSlots = useRef(new Map<string, number>());
   const swipeStart = useRef<number | null>(null);
   const swiped = useRef(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 680);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   const step = useCallback((direction: number) => {
     if (count > 1) onSelect((current) => (current + direction + count) % count);
@@ -1138,6 +1146,10 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
   useEffect(() => {
     previousSlots.current = new Map(items.map((item) => [item.coat.src, item.slot]));
   });
+
+  // Tighter spacing and smaller side scale specifically for mobile view
+  const activeSlotSpacing = isMobile ? 40 : SLOT_SPACING;
+  const activeSideScale = isMobile ? 0.65 : SIDE_SCALE;
 
   useEffect(() => {
     const root = rootRef.current;
@@ -1191,8 +1203,8 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
         {loading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing garment</span></div>}
         {items.map(({ coat, index, slot }) => {
           const distance = Math.abs(slot);
-          const scale = distance === 0 ? 1 : SIDE_SCALE ** distance;
-          const classes = ["carouselItem", slot === 0 ? "active" : "side", wrapped(coat.src, slot) ? "wrapped" : ""].join(" ");
+          const scale = distance === 0 ? 1 : activeSideScale ** distance;
+          const classes = ["carouselItem", slot === 0 ? "active" : "side", wrapped(coat.src, slot) ? "wrapped" : ""].join(" ").trim();
           return (
             <div
               key={coat.src}
@@ -1201,8 +1213,8 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
               aria-label={distance === 1 ? `Choose ${coat.name}` : undefined}
               aria-hidden={distance > 1 ? true : undefined}
               style={{
-                transform: `translateX(${slot * SLOT_SPACING}%) scale(${scale})`,
-                opacity: distance === 0 ? 1 : distance === 1 ? 0.85 : distance === 2 ? 0.4 : 0,
+                transform: `translateX(${slot * activeSlotSpacing}%) scale(${scale})`,
+                opacity: distance === 0 ? 1 : distance === 1 ? 0.75 : distance === 2 ? 0.3 : 0,
                 zIndex: 3 - distance,
                 pointerEvents: distance > 1 ? "none" : undefined,
               }}
