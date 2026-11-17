@@ -13,7 +13,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   black: "Jet Black",
   gray: "Slate Grey",
   white: "Ivory White",
-  yellow: "Mustard",
+  brown: "Reddish Brown",
 };
 
 // Picker order for coats; files not listed here follow in filename order.
