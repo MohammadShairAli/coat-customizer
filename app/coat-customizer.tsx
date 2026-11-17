@@ -752,6 +752,8 @@ const BUTTON_FINISHES: Record<string, ButtonFinish> = {
   gray: { color: "#2b2927", metalness: 0, roughness: 0.6, env: 0.3, specular: 0.5 },
   white: { color: "#ffffff", metalness: 0, roughness: 0.4, env: 0.4 },
   brown: { color: "#4a2c17", metalness: 0, roughness: 0.45, env: 0.35, specular: 0.4 },
+  golden: { color: "#d4af37", metalness: 0.85, roughness: 0.25, env: 0.8, specular: 0.9 },
+  green: { color: "#1e4620", metalness: 0, roughness: 0.45, env: 0.35, specular: 0.4 },
 };
 
 function buttonFinish(option?: CustomizerOption) {

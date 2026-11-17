@@ -388,6 +388,7 @@ legend {
 
 .carouselItem {
   position: absolute;
+  cursor: pointer;
   top: 50%;
   left: 50%;
   height: 100%;
