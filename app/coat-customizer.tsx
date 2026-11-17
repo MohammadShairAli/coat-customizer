@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState, Suspense, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { useState, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, useGLTF, useProgress, useTexture, Center } from "@react-three/drei";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
@@ -853,11 +853,7 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
         )}
 
         {viewMode === "image" ? (
-          <div className={`preview ${previewIsLoading ? "isLoading" : ""}`} aria-busy={previewIsLoading}>
-            {previewIsLoading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing your coat</span></div>}
-            <PhotoLayers coat={coat} button={button} onLoad={markImageLoaded} />
-            {!coat && <p className="emptyPreview">Add a coat image to<br /><code>public/coats</code></p>}
-          </div>
+          <CoatCarousel coats={coats} selected={selectedCoat} onSelect={setSelectedCoat} button={button} loading={previewIsLoading} onLoad={markImageLoaded} />
         ) : (
         <div className={`preview3d ${modelPreviewIsLoading ? "isLoading" : ""}`} aria-busy={modelPreviewIsLoading}>
           <PhotoLayers coat={coat} button={button} onLoad={markImageLoaded} />
@@ -926,12 +922,147 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
   );
 }
 
-function PhotoLayers({ coat, button, onLoad }: { coat?: CustomizerOption; button?: CustomizerOption; onLoad: (src: string) => void }) {
+// Image view: every coat stands in one row, the selected one in the centre and its neighbours either side.
+// The row is a ring, so three coats are always on screen; moving it only changes which coat is selected,
+// which is what the 3D view loads. The chosen button is laid over all of them.
+const SLOT_SPACING = 55; // percent of a coat's own width between neighbouring slots
+const SIDE_SCALE = 0.68;
+const SWIPE_DISTANCE = 45;
+
+function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
+  coats: CustomizerOption[]; selected: number; onSelect: Dispatch<SetStateAction<number>>;
+  button?: CustomizerOption; loading: boolean; onLoad: (src: string) => void;
+}) {
+  const count = coats.length;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const previousSlots = useRef(new Map<string, number>());
+  const swipeStart = useRef<number | null>(null);
+  const swiped = useRef(false);
+
+  const step = useCallback((direction: number) => {
+    if (count > 1) onSelect((current) => (current + direction + count) % count);
+  }, [count, onSelect]);
+
+  // Slot of each coat relative to the selected one: 0 is the centre, -1 the left neighbour, 1 the right
+  const half = Math.floor(count / 2);
+  const items = coats
+    .map((coat, index) => ({
+      coat,
+      index,
+      slot: count === 2 ? (index === selected ? 0 : 1) : ((index - selected + count + half) % count) - half,
+    }))
+    .filter((item) => Math.abs(item.slot) <= 2);
+
+  // A coat that wraps from one end of the ring to the other must not slide across the others
+  const wrapped = (src: string, slot: number) => {
+    const before = previousSlots.current.get(src);
+    return before !== undefined && Math.abs(slot - before) > 1;
+  };
+  useEffect(() => {
+    previousSlots.current = new Map(items.map((item) => [item.coat.src, item.slot]));
+  });
+
+  // Sideways scrolling (trackpad or tilt wheel) moves the row by one coat per gesture
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    let gesture: ReturnType<typeof setTimeout> | undefined;
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      // Inertia keeps the events coming after the fingers lift, so the gesture ends when they stop
+      const active = gesture !== undefined;
+      clearTimeout(gesture);
+      gesture = setTimeout(() => { gesture = undefined; }, 160);
+      if (!active && Math.abs(event.deltaX) >= 4) step(event.deltaX > 0 ? 1 : -1);
+    };
+    root.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      root.removeEventListener("wheel", onWheel);
+      clearTimeout(gesture);
+    };
+  }, [step]);
+
+  return (
+    <>
+      <div
+        ref={rootRef}
+        className={`carousel ${loading ? "isLoading" : ""}`}
+        role="group"
+        aria-roledescription="carousel"
+        aria-label="Coat variants"
+        aria-busy={loading}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          step(event.key === "ArrowRight" ? 1 : -1);
+        }}
+        onPointerDown={(event) => {
+          if (event.pointerType === "mouse" && event.button !== 0) return;
+          swipeStart.current = event.clientX;
+          swiped.current = false;
+        }}
+        onPointerUp={(event) => {
+          const start = swipeStart.current;
+          swipeStart.current = null;
+          if (start === null || Math.abs(event.clientX - start) < SWIPE_DISTANCE) return;
+          swiped.current = true;
+          step(event.clientX < start ? 1 : -1);
+        }}
+        onPointerCancel={() => { swipeStart.current = null; }}
+        onDragStart={(event) => event.preventDefault()}
+      >
+        {loading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing your coat</span></div>}
+        {items.map(({ coat, index, slot }) => {
+          const distance = Math.abs(slot);
+          const scale = distance === 0 ? 1 : SIDE_SCALE ** distance;
+          const classes = ["carouselItem", slot === 0 ? "" : "side", wrapped(coat.src, slot) ? "wrapped" : ""].join(" ");
+          return (
+            <div
+              key={coat.src}
+              className={classes}
+              role={distance === 1 ? "button" : undefined}
+              aria-label={distance === 1 ? `Choose ${coat.name}` : undefined}
+              aria-hidden={distance > 1 ? true : undefined}
+              style={{
+                transform: `translateX(${slot * SLOT_SPACING}%) scale(${scale})`,
+                opacity: distance <= 1 ? 1 : 0,
+                zIndex: distance === 0 ? 2 : 1,
+                pointerEvents: distance > 1 ? "none" : undefined,
+              }}
+              onClick={() => {
+                if (swiped.current) { swiped.current = false; return; }
+                if (slot !== 0) onSelect(index);
+              }}
+            >
+              <PhotoLayers coat={coat} button={button} onLoad={onLoad} priority={distance <= 1} />
+            </div>
+          );
+        })}
+        {!count && <p className="emptyPreview">Add a coat image to<br /><code>public/coats</code></p>}
+      </div>
+
+      {count > 1 && (
+        <>
+          <button type="button" className="carouselArrow prev" onClick={() => step(-1)} aria-label="Previous coat">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M10 3 5 8l5 5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+          <button type="button" className="carouselArrow next" onClick={() => step(1)} aria-label="Next coat">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 3 5 5-5 5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        </>
+      )}
+    </>
+  );
+}
+
+function PhotoLayers({ coat, button, onLoad, priority = true }: { coat?: CustomizerOption; button?: CustomizerOption; onLoad: (src: string) => void; priority?: boolean }) {
   if (!coat) return null;
   const positions = PHOTO_BUTTONS[modelName(coat.model ?? coat.src)] ?? DEFAULT_PHOTO_BUTTONS;
   return (
     <>
-      <Image src={coat.src} alt={`${coat.name} coat`} fill priority sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => onLoad(coat.src)} />
+      <Image src={coat.src} alt={`${coat.name} coat`} fill priority={priority} sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => onLoad(coat.src)} />
       {button && positions.map((position, index) => (
         <span
           key={index}
