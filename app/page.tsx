@@ -14,6 +14,8 @@ const DISPLAY_NAMES: Record<string, string> = {
   gray: "Slate Grey",
   white: "Ivory White",
   brown: "Reddish Brown",
+  golden: "Woven Gold",
+  green: "Emerald green",
 };
 
 // Picker order for coats; files not listed here follow in filename order.
