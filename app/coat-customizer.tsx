@@ -13,28 +13,16 @@ RectAreaLightUniformsLib.init();
 export type CustomizerOption = { src: string; name: string; model?: string; thumb?: string };
 type ViewMode = "3d" | "image";
 const ITEMS_PER_PAGE = 10;
-// Framed so the front view lines up with the product photo in the same box: switching modes should feel like the photo coming alive.
-// The photos are shot on a long lens from just below the chest, so a short wide lens bowed the sleeves and lifted
-// the hem against them. Solved by matching the model's silhouette to the photo's alpha (98.7% overlap).
+
 const CAMERA_TARGET: [number, number, number] = [0, 0.05, 0];
 const CAMERA_DISTANCE = 1.3564;
-const CAMERA_HEIGHT = -0.1125; // below the target, looking slightly up
+const CAMERA_HEIGHT = -0.1125;
 const CAMERA_FOV = 17.46;
-// The photo's coat sits slightly right of centre and turned a touch to its left; a few millimetres of offset is invisible while rotating.
 const MODEL_OFFSET: [number, number, number] = [0.0052, -0.1319, 0];
 const MODEL_YAW = THREE.MathUtils.degToRad(-2.33);
-// Height of the coat in the scene, so it fills the photo's frame
 const MODEL_HEIGHT = 0.7556;
-const VIEW_MODES: { value: ViewMode; label: string }[] = [
-  { value: "3d", label: "3D" },
-  { value: "image", label: "Image" },
-];
 
-// The photos have no buttons, so the chosen button is laid over them where the 3D buttons project with the
-// camera above (percent of the preview box, centre of each button). Coats 1–3 have their own modelled buttons;
-// any others wear buttons.glb.
 type PhotoButton = { x: number; y: number };
-// The lower button sits at the end of the photo's painted buttonhole, leaving the slit showing as on the 3D coat.
 const BUILT_IN_PHOTO_BUTTONS: PhotoButton[] = [{ x: 51.38, y: 48.13 }, { x: 48.84, y: 61.16 }];
 const PHOTO_BUTTONS: Record<string, PhotoButton[]> = {
   "Coat-1": BUILT_IN_PHOTO_BUTTONS,
@@ -42,10 +30,8 @@ const PHOTO_BUTTONS: Record<string, PhotoButton[]> = {
   "Coat-3": BUILT_IN_PHOTO_BUTTONS,
 };
 const DEFAULT_PHOTO_BUTTONS: PhotoButton[] = [{ x: 51.37, y: 48.3 }, { x: 47.6, y: 61.7 }];
-// The 3D button is 2.75% of the box wide; the button fills the middle 80% of its PNG.
 const PHOTO_BUTTON_WIDTH = 2.75 / 0.8;
 
-// Coats with their own buttons modelled in; buttons.glb is not positioned for them
 const MODEL_BUTTON_NODES: Record<string, string[]> = {
   "Coat-1": ["button", "button001"],
   "Coat-2": ["button", "button001"],
@@ -56,97 +42,96 @@ function modelName(url?: string) {
   return url?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
 }
 
-// Coat-3 is one baked 4096 atlas shared by cloth, shirt, tie and mannequin. Its herringbone is ~3 texels
-// per twill line, so at preview size the mipmaps average it into a pebbly felt. The weave is redrawn
-// in the shader at the scale of the photo, and the meshes below are told apart by glTF node name.
 type ClothSettings = {
   clothNodes: string[];
   tieNode?: string;
-  columns: number; // herringbone columns per UV unit
-  lines: number; // twill lines per UV unit
+  columns: number;
+  lines: number;
   contrast: number;
-  saturation: number; // 1 keeps the bake's colour, lower moves the camel toward the photo's taupe
+  saturation: number;
   tint: [number, number, number];
   normalScale: number;
 };
 
 const MODEL_CLOTH: Record<string, ClothSettings> = {
   "Coat-3": {
-    // Jacket body, lapels, the two pocket flaps and the breast pocket welt
     clothNodes: ["_gltfNode_18003", "_gltfNode_27002", "_gltfNode_39002", "_gltfNode_42002", "_gltfNode_24002"],
     tieNode: "_gltfNode_36002",
     columns: 124,
     lines: 402,
-    contrast: 0.14,
+    contrast: 0.16,
     saturation: 0.6,
     tint: [0.76, 0.74, 0.71],
-    normalScale: 0.35,
+    normalScale: 0.45,
   },
 };
 
-// Coat-2 tiles a "ribbed_corduroy" set at 2×. Against the photo that is half the stripe count, the deep
-// wale normals and full anisotropy streak each rib into corduroy, and the green sits too minty.
-// At the photo's count a stripe is ~3px on screen, and the mipmaps average the map's faint stripe to a flat
-// wash, so the stripe is redrawn in the shader.
 type TiledClothSettings = {
   material: string;
-  repeat: number; // tiles per UV unit
-  stripes: number; // stripes per tile in the map
-  stripePhase: number; // where the map's light stripe peaks, so the drawn one lands on it
+  repeat: number;
+  stripes: number;
+  stripePhase: number;
   stripeContrast: number;
-  mapContrast: number; // how much of the map's light/dark survives around its average colour (1 = untouched)
+  mapContrast: number;
   normalScale: number;
-  tint: [number, number, number]; // linear multiplier on the map, pulls the mint toward the photo's grey sage
+  tint: [number, number, number];
 };
 
-const MODEL_TILED_CLOTH: Record<string, TiledClothSettings> = {
-  "Coat-2": {
-    material: "ribbed_corduroy",
-    repeat: 4,
-    stripes: 114,
-    stripePhase: 2.78,
-    // Contrast removed: no drawn stripe, the map flattened to its average colour, no wale relief
-    stripeContrast: 0.24,
-    mapContrast: 0,
-    normalScale: 0.55,
-    tint: [0.78, 0.81, 0.72],
-  },
-};
+const MODEL_TILED_CLOTH: Record<string, TiledClothSettings> = {};
 
-// Coat-1 is re-exported as one baked atlas ("Material.001") shared by cloth, shirt, tie and mannequin, so
-// the parts are told apart by glTF node name as on Coat-3. The bake's charcoal and tie are already near
-// black; what greys them is the default 4% specular, which under the key and fills washes over dark cloth
-// as much light as the albedo returns. Each part gets its own physical material with that turned down.
 type ClothFinish = {
   clothNodes: string[];
-  shirtNode: string;
+  shirtNode?: string;
+  shirtNodes?: string[];
   tieNode: string;
-  normalScale: number; // the bake's normals cut the pinstripe as a deep groove
-  tint: [number, number, number]; // linear multiplier on the map
+  normalScale: number;
+  tint: [number, number, number];
   specular: number;
-  roughness: number; // multiplier on the bake's roughness map: lower tightens the highlights into a glint
-  // Strength of the studio reflection on the cloth alone, which gives the shine something to catch
+  roughness: number;
   reflection: number;
-  // The photo's worsted catches the key as a soft shine across the shoulders, sleeves and folds
   sheen: { amount: number; color: [number, number, number]; roughness: number };
-  shirt: [number, number, number]; // the bake's shirt is a dim warm grey against the photo's white
+  shirt: [number, number, number];
+  detailStrength?: number;
+  excludeHighlights?: boolean;
 };
 
 const MODEL_CLOTH_FINISH: Record<string, ClothFinish> = {
   "Coat-1": {
-    // Jacket body, lapels, the two pocket flaps and the breast pocket welt
     clothNodes: ["_gltfNode_18", "_gltfNode_27", "_gltfNode_39", "_gltfNode_42", "_gltfNode_24"],
     shirtNode: "_gltfNode_60",
     tieNode: "_gltfNode_36",
-    // Up from 0.3, which flattened the weave; past ~0.6 the pinstripe cuts in as a groove again
     normalScale: 0.58,
     tint: [0.8, 0.82, 0.88],
     specular: 0.6,
     roughness: 0.65,
     reflection: 0.35,
-    // Neutral grey so the shine stays silvery rather than lifting the charcoal toward blue
-    sheen: { amount: 1, color: [0.42, 0.42, 0.44], roughness: 0.35 },
+    sheen: { amount: 0.45, color: [0.42, 0.42, 0.44], roughness: 0.35 },
     shirt: [1.5, 1.52, 1.58],
+    detailStrength: 0.72,
+    excludeHighlights: true,
+  },
+  "Coat-2": {
+    clothNodes: [
+      "_gltfNode_18001",
+      "_gltfNode_27001",
+      "_gltfNode_39001",
+      "_gltfNode_42001",
+      "_gltfNode_24001",
+      "_gltfNode_54001",
+      "_gltfNode_48001",
+      "_gltfNode_51001",
+    ],
+    shirtNodes: ["_gltfNode_21001", "_gltfNode_60001", "_gltfNode_15001"],
+    tieNode: "_gltfNode_36001",
+    normalScale: 0.78,
+    tint: [0.96, 0.98, 0.95],
+    specular: 0.25,
+    roughness: 0.82,
+    reflection: 0.18,
+    sheen: { amount: 0.28, color: [0.42, 0.44, 0.4], roughness: 0.5 },
+    shirt: [1.12, 1.13, 1.16],
+    detailStrength: 0.85,
+    excludeHighlights: false,
   },
 };
 
@@ -161,7 +146,6 @@ function bakedPart(source: THREE.MeshStandardMaterial, color: [number, number, n
     specularIntensity: specular,
   });
   if (normalScale !== undefined) {
-    // The loader may have flipped y for missing tangents, so keep each sign
     mat.normalScale.set(Math.sign(mat.normalScale.x) * normalScale, Math.sign(mat.normalScale.y) * normalScale);
   }
   mat.color.setRGB(...color);
@@ -170,17 +154,17 @@ function bakedPart(source: THREE.MeshStandardMaterial, color: [number, number, n
 }
 
 function finishBakedCloth(scene: THREE.Object3D, finish: ClothFinish, anisotropy: number, envMap: THREE.Texture) {
+  const shirtNodes = finish.shirtNodes ?? (finish.shirtNode ? [finish.shirtNode] : []);
+
   scene.traverse((child) => {
     const mesh = child as THREE.Mesh;
     if (!mesh.isMesh || Array.isArray(mesh.material)) return;
     const source = mesh.material as THREE.MeshStandardMaterial;
-    // The scene is cached across canvases, so a finished cloth only needs the new canvas's reflection
     if (source.userData.studioCloth) source.envMap = envMap;
     if (!source.isMeshStandardMaterial || source.userData.retextured) return;
 
     if (finish.clothNodes.includes(mesh.name)) {
       const cloth = bakedPart(source, finish.tint, finish.specular, finish.normalScale);
-      // Without it the herringbone smears to a flat grey wherever the cloth turns from the camera
       for (const map of [cloth.map, cloth.normalMap, cloth.roughnessMap]) if (map) map.anisotropy = anisotropy;
       cloth.roughness = finish.roughness;
       cloth.envMap = envMap;
@@ -190,10 +174,9 @@ function finishBakedCloth(scene: THREE.Object3D, finish: ClothFinish, anisotropy
       cloth.sheenColor.setRGB(...finish.sheen.color);
       cloth.sheenRoughness = finish.sheen.roughness;
       mesh.material = cloth;
-    } else if (mesh.name === finish.shirtNode) {
+    } else if (shirtNodes.includes(mesh.name)) {
       mesh.material = bakedPart(source, finish.shirt, 0.5);
     } else if (mesh.name === finish.tieNode) {
-      // The photo's tie is black silk; keep the bake for its fold shading
       const tie = bakedPart(source, [0.35, 0.35, 0.36], 0.3);
       tie.roughness = 0.8;
       tie.roughnessMap = null;
@@ -221,12 +204,10 @@ function stripeShader(cloth: TiledClothSettings) {
         "#include <map_fragment>",
         `#include <map_fragment>
         #ifdef USE_MAP
-          // The smallest mip is the map's average colour; pull each texel toward it
-          diffuseColor.rgb = mix( diffuse * textureLod( map, vMapUv, 16.0 ).rgb, diffuseColor.rgb, mapContrast );
+          diffuseColor.rgb = mix( diffuse * textureLod( map, vMapUv, 4.0 ).rgb, diffuseColor.rgb, mapContrast );
         #endif
         {
           float phase = vMapUv.x * stripeCount;
-          // Fade out before a stripe shrinks under two pixels, instead of letting it shimmer
           float fade = 1.0 - smoothstep( 0.5, 0.9, fwidth( phase ) );
           diffuseColor.rgb *= 1.0 + stripeContrast * fade * cos( phase * 6.2831853 + stripePhase );
         }`,
@@ -234,12 +215,6 @@ function stripeShader(cloth: TiledClothSettings) {
   };
 }
 
-// The cloth's UV islands are not laid out alike: the body panels share one scale, but the collar and lapels
-// pack ~1.9× more UV per centimetre, the right pocket flap ~2.3× and the left one ~14× (and turned 90°).
-// There the stripes fall under a pixel and alias into wide soft bands, so each island is brought to the
-// scale of the largest panel and turned so its stripes hang vertically.
-// The collar is the one island that wraps the neck, both lapels in it: it keeps the model's own stripe direction
-// and is only rescaled, since no single turn suits a piece that wraps around.
 function evenClothUVs(mesh: THREE.Mesh) {
   const geometry = mesh.geometry;
   const index = geometry.index;
@@ -248,7 +223,6 @@ function evenClothUVs(mesh: THREE.Mesh) {
   const uv = geometry.getAttribute("uv");
   const count = pos.count;
 
-  // Vertices split only for normals still belong to one island, so join them by position and uv
   const parent = new Int32Array(count);
   const seen = new Map<string, number>();
   for (let v = 0; v < count; v++) {
@@ -273,7 +247,6 @@ function evenClothUVs(mesh: THREE.Mesh) {
   const margin = (bounds.max.x - bounds.min.x) * 0.05;
   const shoulders = bounds.min.y + (bounds.max.y - bounds.min.y) * 0.75;
 
-  // Island stats: surface and uv area, and the uv direction the front view sees as up
   type Island = { area: number; uvArea: number; up: THREE.Vector2; y: number; minX: number; maxX: number; u: number; v: number; n: number };
   const islands = new Map<number, Island>();
   for (let v = 0; v < count; v++) {
@@ -308,14 +281,11 @@ function evenClothUVs(mesh: THREE.Mesh) {
     island.y += area * p0.y;
     island.uvArea += Math.abs(du1 * dv2 - du2 * dv1) / 2;
 
-    // Surface gradients of u and v over the triangle
     const g11 = e1.dot(e1), g12 = e1.dot(e2), g22 = e2.dot(e2);
     a.copy(e1).multiplyScalar(g22).addScaledVector(e2, -g12).divideScalar(n2);
     b.copy(e2).multiplyScalar(g11).addScaledVector(e1, -g12).divideScalar(n2);
     gradU.copy(a).multiplyScalar(du1).addScaledVector(b, du2);
     gradV.copy(a).multiplyScalar(dv1).addScaledVector(b, dv2);
-    // The direction on the surface that the front view sees as up. Flaps are tilted and curved,
-    // so plain 3D up would leave their stripes leaning on screen.
     across.crossVectors(up, forward);
     dir.crossVectors(normal, across).normalize();
     if (dir.dot(up) < 0) dir.negate();
@@ -327,17 +297,13 @@ function evenClothUVs(mesh: THREE.Mesh) {
   for (const island of islands.values()) if (!largest || island.area > largest.area) largest = island;
   if (!largest) return;
   const target = Math.sqrt(largest.uvArea / largest.area);
-  // The back panel also crosses the centre line, but sits far below the shoulders
   const isCollar = (island: Island) =>
     island !== largest && island.minX < midX - margin && island.maxX > midX + margin && island.y / island.area > shoulders;
   for (const island of islands.values()) {
     island.up.normalize();
-    // Stripes have no head or tail, so turn the shorter way
     if (island.up.y < 0) island.up.negate();
   }
 
-  // The breast welt is cut into hundreds of slivers, packed ~2.2× finer than the body but already hanging
-  // vertically. Scaled one by one they would no longer meet, so they are scaled together about one centre.
   const isSliver = (island: Island) => island.area <= largest.area * 0.005;
   const welt = { area: 0, uvArea: 0, u: 0, v: 0, n: 0 };
   const inWelt = new Set<Island>();
@@ -357,7 +323,6 @@ function evenClothUVs(mesh: THREE.Mesh) {
     let u = uv.getX(v), w = uv.getY(v);
     const island = islands.get(root(v))!;
     const density = Math.sqrt(island.uvArea / island.area);
-    // Panels within 10% are left exactly as authored
     if (inWelt.has(island)) {
       const cu = welt.u / welt.n, cv = welt.v / welt.n;
       u = cu + (u - cu) * weltScale;
@@ -370,7 +335,6 @@ function evenClothUVs(mesh: THREE.Mesh) {
         u = cu + du * scale;
         w = cv + dw * scale;
       } else {
-        // Turn the island so the direction its stripes should run lands on v
         const g = island.up;
         u = cu + (du * g.y - dw * g.x) * scale;
         w = cv + (du * g.x + dw * g.y) * scale;
@@ -384,12 +348,13 @@ function evenClothUVs(mesh: THREE.Mesh) {
 }
 
 function retileCloth(mat: THREE.MeshPhysicalMaterial, cloth: TiledClothSettings, anisotropy: number) {
+  if (mat.userData.retiled) return;
   for (const map of [mat.map, mat.normalMap, mat.roughnessMap, mat.metalnessMap, mat.specularIntensityMap, mat.specularColorMap]) {
     if (!map) continue;
     map.repeat.setScalar(cloth.repeat);
     map.anisotropy = anisotropy;
+    map.needsUpdate = true;
   }
-  // The loader may have flipped y for missing tangents, so keep each sign
   mat.normalScale.set(Math.sign(mat.normalScale.x) * cloth.normalScale, Math.sign(mat.normalScale.y) * cloth.normalScale);
   mat.color.setRGB(...cloth.tint);
   if (mat.isMeshPhysicalMaterial) {
@@ -397,7 +362,8 @@ function retileCloth(mat: THREE.MeshPhysicalMaterial, cloth: TiledClothSettings,
     mat.anisotropyMap = null;
   }
   mat.onBeforeCompile = stripeShader(cloth);
-  mat.customProgramCacheKey = () => "stripe";
+  mat.customProgramCacheKey = () => "stripe_v2";
+  mat.userData.retiled = true;
   mat.needsUpdate = true;
 }
 
@@ -405,7 +371,9 @@ function weaveMaterial(source: THREE.MeshStandardMaterial, cloth: ClothSettings,
   const mat = source.clone();
   mat.userData.retextured = true;
   mat.normalScale.setScalar(cloth.normalScale);
-  if (mat.map) mat.map.anisotropy = anisotropy;
+  for (const map of [mat.map, mat.normalMap, mat.roughnessMap]) {
+    if (map) map.anisotropy = anisotropy;
+  }
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.weaveColumns = { value: cloth.columns };
     shader.uniforms.weaveLines = { value: cloth.lines };
@@ -426,18 +394,15 @@ function weaveMaterial(source: THREE.MeshStandardMaterial, cloth: ClothSettings,
         "#include <map_fragment>",
         `#include <map_fragment>
         {
-          // Shirt cuffs share the lapel mesh, so only saturated (camel) texels take the weave
           float hi = max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b));
           float lo = min(diffuseColor.r, min(diffuseColor.g, diffuseColor.b));
-          float camel = smoothstep(0.3, 0.55, (hi - lo) / max(hi, 1e-4));
+          float camel = smoothstep(0.25, 0.52, (hi - lo) / max(hi, 1e-4));
 
           vec2 uv = vMapUv;
           float column = uv.x * weaveColumns;
           float across = fract(column) / weaveColumns;
-          // Neighbouring columns mirror, so the twill lines meet in chevrons
           across = mod(floor(column), 2.0) < 1.0 ? across : 1.0 / weaveColumns - across;
           float phase = (uv.y + across) * weaveLines;
-          // Fade the lines out before they shrink below a pixel, instead of letting them shimmer
           float fade = 1.0 - smoothstep(0.35, 0.7, fwidth(phase));
           float twill = sin(phase * 6.2831853) * fade;
           float seam = smoothstep(0.08, 0.0, min(fract(column), 1.0 - fract(column))) * (1.0 - smoothstep(0.3, 0.6, fwidth(column)));
@@ -449,7 +414,7 @@ function weaveMaterial(source: THREE.MeshStandardMaterial, cloth: ClothSettings,
         }`,
       );
   };
-  mat.customProgramCacheKey = () => "weave";
+  mat.customProgramCacheKey = () => "weave_v2";
   return mat;
 }
 
@@ -463,7 +428,6 @@ function retextureCloth(scene: THREE.Object3D, cloth: ClothSettings, anisotropy:
     if (cloth.clothNodes.includes(mesh.name)) {
       mesh.material = weaveMaterial(source, cloth, anisotropy);
     } else if (mesh.name === cloth.tieNode) {
-      // The photo's tie is black silk; the bake has it grey. Keep the bake for its fold shading.
       const tie = source.clone();
       tie.userData.retextured = true;
       tie.color.set("#0b0b0c");
@@ -480,8 +444,6 @@ function finishBuiltInButtons(scene: THREE.Object3D, nodes: string[], finish: Bu
     if (!mesh.isMesh || Array.isArray(mesh.material) || !nodes.includes(mesh.name)) return;
     let mat = mesh.material as THREE.MeshPhysicalMaterial;
     if (!mat.userData.buttonFinish) {
-      // The atlas paints these buttons brown horn; keep only its normals so the chosen colour is not multiplied into it.
-      // Physical, so the dark finishes can turn down the specular that the cool fills wash into grey.
       const source = mesh.material as THREE.MeshStandardMaterial;
       mat = new THREE.MeshPhysicalMaterial({ normalMap: source.normalMap, normalScale: source.normalScale.clone(), side: source.side });
       mat.userData.buttonFinish = true;
@@ -496,15 +458,189 @@ function finishBuiltInButtons(scene: THREE.Object3D, nodes: string[], finish: Bu
   });
 }
 
+type ClothColor = { name: string; swatch: string; color?: string };
+
+// Classic, refined menswear coat shades tailored to each coat's fabric weave
+const MODEL_COLORS: Record<string, ClothColor[]> = {
+  "Coat-1": [
+    { name: "Charcoal", swatch: "#3b3c40" },
+    { name: "Midnight Navy", swatch: "#1e293b", color: "#213047" },
+    { name: "Espresso", swatch: "#78412c", color: "#6b483a" }, // Richer, premium cognac-espresso tone
+    { name: "Slate Grey", swatch: "#4b5158", color: "#4e555e" },
+  ],
+  "Coat-2": [
+    { name: "Sage Olive", swatch: "#8b9680" },
+    { name: "Deep Navy", swatch: "#141c28", color: "#172335" }, // Deeper, rich midnight-navy tone
+    { name: "Chestnut", swatch: "#593828", color: "#663f2c" },
+    { name: "Warm Taupe", swatch: "#6e655c", color: "#756b61" },
+  ],
+  "Coat-3": [
+    { name: "Camel", swatch: "#9a7a52" },
+    { name: "Oxford Navy", swatch: "#243147", color: "#273752" },
+    { name: "Loden Olive", swatch: "#484d36", color: "#4f543b" },
+    { name: "Heather Grey", swatch: "#4a4c50", color: "#525559" },
+  ],
+};
+
+const FALLBACK_CLOTH_LUMA: Record<string, number> = { "Coat-1": 0.045, "Coat-2": 0.22, "Coat-3": 0.22 };
+
+const lumaOf = (rgb: readonly number[]) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+
+function clothParts(scene: THREE.Object3D, name: string) {
+  const finish = MODEL_CLOTH_FINISH[name];
+  const weave = MODEL_CLOTH[name];
+  const tiled = MODEL_TILED_CLOTH[name];
+  const tint = finish?.tint ?? weave?.tint ?? tiled?.tint;
+  if (!tint) return null;
+  const nodes = finish?.clothNodes ?? weave?.clothNodes;
+  const meshes: THREE.Mesh[] = [];
+  const materials = new Set<THREE.MeshStandardMaterial>();
+  scene.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const mat of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      const standard = mat as THREE.MeshStandardMaterial;
+      if (!standard.isMeshStandardMaterial) continue;
+      if (nodes ? nodes.includes(mesh.name) : standard.name === tiled?.material) {
+        meshes.push(mesh);
+        materials.add(standard);
+      }
+    }
+  });
+  return {
+    meshes,
+    materials,
+    tint,
+    tiled: Boolean(tiled),
+    isWeave: Boolean(weave),
+    detailStrength: finish?.detailStrength,
+    excludeHighlights: finish?.excludeHighlights ?? true,
+  };
+}
+
+function mapLuminance(map: THREE.Texture, meshes: THREE.Mesh[]) {
+  const image = map.image as (CanvasImageSource & { width: number; height: number }) | null | undefined;
+  if (!image || !image.width || !image.height || typeof document === "undefined") return null;
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return null;
+  let pixels: Uint8ClampedArray;
+  try {
+    context.drawImage(image, 0, 0, size, size);
+    pixels = context.getImageData(0, 0, size, size).data;
+  } catch {
+    return null;
+  }
+  const linear = (c: number) => (c / 255 <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+  const samples: number[] = [];
+  const read = (u: number, v: number) => {
+    const row = map.flipY ? 1 - v : v;
+    const x = Math.min(size - 1, Math.floor((u - Math.floor(u)) * size));
+    const y = Math.min(size - 1, Math.floor((row - Math.floor(row)) * size));
+    const i = (y * size + x) * 4;
+    samples.push(lumaOf([linear(pixels[i]), linear(pixels[i + 1]), linear(pixels[i + 2])]));
+  };
+  const uvAttrName = map.channel === 1 ? "uv1" : map.channel === 2 ? "uv2" : map.channel === 3 ? "uv3" : "uv";
+  if (meshes.length) {
+    for (const mesh of meshes) {
+      const uv = mesh.geometry.getAttribute(uvAttrName) ?? mesh.geometry.getAttribute("uv");
+      if (!uv) continue;
+      const stride = Math.max(1, Math.floor(uv.count / 2000));
+      for (let i = 0; i < uv.count; i += stride) read(uv.getX(i), uv.getY(i));
+    }
+  } else {
+    for (let y = 0; y < 24; y++) for (let x = 0; x < 24; x++) read((x + 0.5) / 24, (y + 0.5) / 24);
+  }
+  if (samples.length < 8) return null;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const kept = samples.filter((value) => value >= median / 3 && value <= median * 3);
+  return kept.length ? kept.reduce((sum, value) => sum + value, 0) / kept.length : null;
+}
+
+type Recolor = {
+  target: { value: THREE.Color };
+  amount: { value: number };
+  base: { value: number };
+  detailStrength: { value: number };
+  excludeHighlights: { value: number };
+};
+type CompileHook = ((shader: THREE.WebGLProgramParametersWithUniforms, renderer: THREE.WebGLRenderer) => void) & { recolor?: boolean };
+
+function hookRecolor(
+  mat: THREE.MeshStandardMaterial,
+  baseLuma: number,
+  detailStrength: number,
+  excludeHighlights = true,
+): Recolor {
+  const safeBase = Math.max(baseLuma, 0.035);
+  const state: Recolor = (mat.userData.recolor ??= {
+    target: { value: new THREE.Color() },
+    amount: { value: 0 },
+    base: { value: safeBase },
+    detailStrength: { value: detailStrength },
+    excludeHighlights: { value: excludeHighlights ? 1 : 0 },
+  });
+  state.base.value = safeBase;
+  state.detailStrength.value = detailStrength;
+  state.excludeHighlights.value = excludeHighlights ? 1 : 0;
+
+  const current = mat.onBeforeCompile as CompileHook;
+  if (current?.recolor) return state;
+
+  const previous = current;
+  const previousKey = mat.customProgramCacheKey ? mat.customProgramCacheKey() : "";
+
+  const hook: CompileHook = (shader, renderer) => {
+    if (previous) previous.call(mat, shader, renderer);
+    shader.uniforms.clothTarget = state.target;
+    shader.uniforms.clothAmount = state.amount;
+    shader.uniforms.clothBaseLuma = state.base;
+    shader.uniforms.clothDetailStrength = state.detailStrength;
+    shader.uniforms.clothExcludeHighlights = state.excludeHighlights;
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        uniform vec3 clothTarget;
+        uniform float clothAmount;
+        uniform float clothBaseLuma;
+        uniform float clothDetailStrength;
+        uniform float clothExcludeHighlights;`,
+      )
+      .replace(
+        "#include <map_fragment>",
+        `#include <map_fragment>
+        if (clothAmount > 0.001) {
+          float texLuma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+          float ratio = texLuma / clothBaseLuma;
+          float detail = clamp(mix(1.0, ratio, clothDetailStrength), 0.35, 1.55);
+          float whiteCuffMask = smoothstep(0.62, 0.78, texLuma) * clothExcludeHighlights;
+          float clothMask = clothAmount * (1.0 - whiteCuffMask);
+          diffuseColor.rgb = mix(diffuseColor.rgb, clothTarget * detail, clothMask);
+        }`,
+      );
+  };
+
+  hook.recolor = true;
+  mat.onBeforeCompile = hook;
+  mat.customProgramCacheKey = () => `${previousKey}+recolor_v6`;
+  mat.needsUpdate = true;
+  return state;
+}
+
 const SHIRT_SHIFT = new THREE.Color(0.72, 0.74, 0.78);
 const TIE_SHIFT = new THREE.Color(0.35, 0.35, 0.35);
 
-function CoatModel({ url, button, children }: { url: string; button?: CustomizerOption; children?: ReactNode }) {
+function CoatModel({ url, button, color, children }: { url: string; button?: CustomizerOption; color?: string; children?: ReactNode }) {
   const { scene } = useGLTF(url);
   const fitGroup = useRef<THREE.Group>(null);
   const gl = useThree((state) => state.gl);
   const maxAnisotropy = gl.capabilities.getMaxAnisotropy();
-  // A soft studio room for the cloth to reflect, kept off scene.environment so the other coats are untouched
+
   const studioEnv = useMemo(() => {
     const pmrem = new THREE.PMREMGenerator(gl);
     const room = new RoomEnvironment();
@@ -522,18 +658,19 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
     group.scale.setScalar(1);
     group.updateMatrixWorld(true);
 
-    // Fit is measured on the coat only, then applied to the group so the buttons move with it.
     const box = new THREE.Box3().setFromObject(scene);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
-    // Camel Twill is exported below the origin and shorter than the other coats, so the camera frames empty space.
     const fit = size.y > 0.001 ? MODEL_HEIGHT / size.y : 1;
     group.scale.setScalar(fit);
     group.position.copy(center.multiplyScalar(-fit));
     group.updateMatrixWorld(true);
 
-    const tiled = MODEL_TILED_CLOTH[modelName(url)];
-    const clothFinish = MODEL_CLOTH_FINISH[modelName(url)];
+    const name = modelName(url);
+    const tiled = MODEL_TILED_CLOTH[name];
+    const clothFinish = MODEL_CLOTH_FINISH[name];
+    const cloth = MODEL_CLOTH[name];
+
     scene.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
@@ -542,9 +679,6 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
       const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
       for (const mat of materials) {
         const standard = mat as THREE.MeshStandardMaterial;
-        // Coat-1/2 export cloth and mannequin with metalness up to 1 (the packed MTL map's blue channel).
-        // With no environment to reflect, metal renders near black, so the charcoal suit came out as ink.
-        // The tie ("Fabric Pattern") is the exception: as metal it reads black like the photo, as cloth it turns grey.
         const isTie = standard.name.toLowerCase().startsWith("fabric pattern");
         if (standard.isMeshStandardMaterial && !isTie && (standard.metalness > 0 || standard.metalnessMap)) {
           standard.metalness = 0;
@@ -552,14 +686,10 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
           standard.needsUpdate = true;
         }
         const physical = mat as THREE.MeshPhysicalMaterial;
-        // The cloth ships with a full white sheen, which lifts the sage toward mint.
-        if (physical.isMeshPhysicalMaterial && physical.sheen > 0) {
+        if (physical.isMeshPhysicalMaterial && physical.sheen > 0 && !physical.userData.studioCloth) {
           physical.sheen = 0;
           physical.needsUpdate = true;
         }
-        // Bring the props to the photo, so switching views does not shift them: the bake's shirt is a warm
-        // cream against the photo's neutral white, and the metal tie catches the fills as a grey sheen.
-        // The scene is cached across mounts, so the shift is applied once.
         const prop = standard.name.toLowerCase().startsWith("white fabric") ? SHIRT_SHIFT : isTie ? TIE_SHIFT : null;
         if (prop && standard.isMeshStandardMaterial && !standard.userData.photoMatched) {
           standard.color.multiply(prop);
@@ -572,10 +702,34 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
       }
     });
 
-    const cloth = MODEL_CLOTH[modelName(url)];
     if (cloth) retextureCloth(scene, cloth, maxAnisotropy);
     if (clothFinish) finishBakedCloth(scene, clothFinish, maxAnisotropy, studioEnv);
   }, [scene, url, maxAnisotropy, studioEnv]);
+
+  useLayoutEffect(() => {
+    const name = modelName(url);
+    const parts = clothParts(scene, name);
+    if (!parts || !parts.materials.size) return;
+
+    if (scene.userData.clothBaseLuma === undefined) {
+      const textured = [...parts.materials].find((mat) => mat.map);
+      const measured = textured?.map ? mapLuminance(textured.map, parts.tiled ? [] : parts.meshes) : null;
+      scene.userData.clothBaseLuma = (measured ?? FALLBACK_CLOTH_LUMA[name] ?? 0.1) * lumaOf(parts.tint);
+    }
+
+    const detailStrength = parts.detailStrength ?? (parts.tiled ? 0.92 : parts.isWeave ? 0.88 : 0.72);
+
+    for (const mat of parts.materials) {
+      const state = hookRecolor(
+        mat,
+        scene.userData.clothBaseLuma,
+        detailStrength,
+        parts.excludeHighlights,
+      );
+      state.amount.value = color ? 1 : 0;
+      if (color) state.target.value.set(color);
+    }
+  }, [scene, url, color]);
 
   const buttonNodes = MODEL_BUTTON_NODES[modelName(url)];
   const finish = buttonFinish(button);
@@ -591,15 +745,13 @@ function CoatModel({ url, button, children }: { url: string; button?: Customizer
   );
 }
 
-// buttons.glb is one disc for every style, so its face wears the chosen button's cover photo.
-// Coats with built-in buttons have no face UVs to take the photo, so they get the matching plastic colour.
 type ButtonFinish = { color: string; metalness: number; roughness: number; env: number; specular?: number };
 
 const BUTTON_FINISHES: Record<string, ButtonFinish> = {
   black: { color: "#000000", metalness: 0, roughness: 0.3, env: 0.3, specular: 0.25 },
   gray: { color: "#2b2927", metalness: 0, roughness: 0.6, env: 0.3, specular: 0.5 },
   white: { color: "#ffffff", metalness: 0, roughness: 0.4, env: 0.4 },
-  brown: { color: "#6d3a22", metalness: 0, roughness: 0.6, env: 0.3, specular: 0.25 },
+  brown: { color: "#4a2c17", metalness: 0, roughness: 0.45, env: 0.35, specular: 0.4 },
 };
 
 function buttonFinish(option?: CustomizerOption) {
@@ -609,13 +761,11 @@ function buttonFinish(option?: CustomizerOption) {
 
 function setupButtonFace(texture: THREE.Texture) {
   texture.colorSpace = THREE.SRGBColorSpace;
-  // The button spans 10%–90% of every PNG; crop a hair inside so the transparent margin never reaches the disc rim.
   texture.repeat.set(0.79, 0.79);
   texture.offset.set(0.105, 0.1);
   texture.anisotropy = 8;
 }
 
-// buttons.glb ships quantized UVs that do not frame the face, so project the disc face (XY) straight on.
 function planarFaceUVs(geometry: THREE.BufferGeometry) {
   if (geometry.userData.faceUVs) return;
   geometry.computeBoundingBox();
@@ -648,7 +798,6 @@ function ButtonModel({ selectedButtonOption }: { selectedButtonOption: Customize
       if (name.includes("button")) {
         planarFaceUVs(mesh.geometry);
         mat.map = face;
-        // The photo already carries the colour, so the tint stays white
         mat.color.set("#ffffff");
         mat.metalness = finish.metalness;
         mat.roughness = finish.roughness;
@@ -664,40 +813,27 @@ function ButtonModel({ selectedButtonOption }: { selectedButtonOption: Customize
   return <primitive object={scene} />;
 }
 
-// Blender: three area lights, power 70W, nothing else. Three.js area lights are in nits,
-// and Blender power is watts, so intensity = watts / (area × π).
 const BLENDER_AREA_WATTS = 70;
 
 function areaNits(width: number, height: number) {
   return BLENDER_AREA_WATTS / (width * height * Math.PI);
 }
 
-// Area lights cast no shadows in three.js, so on their own the coat reads flat. The photo is lit from
-// above: the collar, lapels and the mannequin cap throw soft shadows down, and the cloth falls off toward
-// the hem and sides. A soft overhead key carries that; the area lights stay on as wrap and fill.
 type Look = {
   toneMapping: THREE.ToneMapping;
   exposure: number;
-  key: number; // key intensity
-  keyX: number; // key's side: negative lights the viewer's left, as in the photos
-  keyZ?: number; // key's depth: smaller sits it more overhead, so the light falls from shoulders to hem
-  fill: number; // scale on the Blender area lights
-  front?: number; // scale on the front area light alone, so the overhead fills can drop without darkening the chest
-  back?: number; // scale on the rear area light; every other light sits in front or overhead, so the back falls to black without it
+  key: number;
+  keyX: number;
+  keyZ?: number;
+  fill: number;
+  front?: number;
+  back?: number;
 };
 
-// The Blender scene was lit for the light cloths at 0.55. Camel Twill is tuned against its photo on this look.
 const DEFAULT_LOOK: Look = { toneMapping: THREE.NeutralToneMapping, exposure: 0.55, key: 5.2, keyX: 0.3, fill: 0.85 };
 
-// The photos are rendered through Blender's AgX view, which mutes the sage's mint and the wood's orange that
-// Neutral keeps, and lit from the viewer's left: the left sleeve reads 10–15 L brighter than the right.
 const MODEL_LOOK: Record<string, Look> = {
-  // Fill kept low so the sides and the cloth under the lapels fall off into shadow as in the photo;
-  // the key carries more of the light than the fills for a punchier light-to-shadow contrast
-  "Coat-2": { toneMapping: THREE.AgXToneMapping, exposure: 0.58, key: 9, keyX: -0.9, fill: 0.26 },
-  // Charcoal's albedo is near black, but at the sage's exposure it rendered mid-grey (L 40 against the photo's 21)
-  // Key raised overhead and the fills lowered, so the shoulders and chest catch the light and the hem falls off.
-  // The area fills wash the cloth flat (the faded look against the photo), so they stay low and the key carries it
+  "Coat-2": { toneMapping: THREE.AgXToneMapping, exposure: 0.52, key: 7.2, keyX: -0.9, fill: 0.3 },
   "Coat-1": { toneMapping: THREE.AgXToneMapping, exposure: 0.26, key: 12, keyX: -0.5, keyZ: 0.3, fill: 0.14, front: 0.28 },
 };
 
@@ -732,7 +868,6 @@ function StudioKey({ look }: { look: Look }) {
     light.target.position.set(0, -0.1, 0);
     light.target.updateMatrixWorld();
     const camera = light.shadow.camera;
-    // Just wide enough for the coat, so the 2048 map spends its texels on the cloth
     camera.left = -0.5;
     camera.right = 0.5;
     camera.top = 0.6;
@@ -756,7 +891,6 @@ function StudioKey({ look }: { look: Look }) {
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-bias={-0.0002}
-        // The weave's normal map would otherwise speckle the cloth with acne
         shadow-normalBias={0.0015}
         shadow-radius={4}
       />
@@ -768,7 +902,6 @@ function StudioKey({ look }: { look: Look }) {
   );
 }
 
-// Reports once the model has actually been drawn, so the loader also covers GPU upload and shader compilation
 function ModelReady({ url, onReady }: { url: string; onReady: (url: string) => void }) {
   const frames = useRef(0);
 
@@ -787,21 +920,32 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
   const [autoRotate, setAutoRotate] = useState(true);
   const [loadedImages, setLoadedImages] = useState<Set<string>>(() => new Set());
   const [readyModel, setReadyModel] = useState<string | null>(null);
+  const [coatColors, setCoatColors] = useState<Record<string, number>>({});
   const { active: modelIsLoading, progress: modelProgress } = useProgress();
 
   const coat = coats[selectedCoat];
   const button = buttons[selectedButton];
+  // 2D images always display only the first available button
+  const defaultPhotoButton = buttons[0];
   const coatModel = coat?.model;
   const modelPreviewIsLoading = Boolean(coatModel && readyModel !== coatModel);
   const previewIsLoading = Boolean(coat && !loadedImages.has(coat.src));
+  const colorOptions = MODEL_COLORS[modelName(coatModel)] ?? [];
+  const colorIndex = coat ? Math.min(coatColors[coat.src] ?? 0, Math.max(colorOptions.length - 1, 0)) : 0;
+  const coatColor = colorOptions[colorIndex]?.color;
 
-  // Fetch the selected coat's 3D model in the background only after the image preview has finished loading
   useEffect(() => {
     if (previewIsLoading) return;
     if (coatModel) useGLTF.preload(coatModel);
     useGLTF.preload("/buttons/buttons.glb");
     if (button) useTexture.preload(button.src);
   }, [previewIsLoading, coatModel, button]);
+
+  function changeView(next: ViewMode) {
+    if (next === viewMode) return;
+    setViewMode(next);
+    setReadyModel(null);
+  }
 
   function markImageLoaded(src: string) {
     setLoadedImages((current) => {
@@ -813,34 +957,50 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
   }
 
   return (
-    <main className="customizer">
-      <section className="intro">
-        <p className="eyebrow">The Atelier</p>
-        <h1>Build your coat.</h1>
-        <p className="description">Select a cloth and finish it with your preferred buttons.</p>
-      </section>
+    <main className={`customizer ${viewMode === "3d" ? "mode3d" : "modeImage"}`}>
+      {viewMode === "3d" && (
+        <aside className="controls" aria-label="Customize your coat">
+          <div className="panelHead">
+            <p className="eyebrow">Bespoke Studio</p>
+            <h2>{coat?.name ?? "No coat"}</h2>
+          </div>
+          <ColorGroup
+            title="01 — Fabric Dye"
+            options={colorOptions}
+            selected={colorIndex}
+            onSelect={(index) => coat && setCoatColors((current) => ({ ...current, [coat.src]: index }))}
+          />
+          <OptionGroup title="02 — Hardware & Buttons" options={buttons} selected={selectedButton} onSelect={setSelectedButton} type="button" emptyMessage="Add button photos to public/buttons/thumbs" />
+        </aside>
+      )}
+
+      {viewMode === "image" && (
+        <header className="atelierHeader">
+          <div className="brandLockup">
+            <span className="brandBadge">ATELIER 3D</span>
+            <h1>Tailored to Form.</h1>
+          </div>
+          <p className="description">Select a signature weave below, then step into the 3D studio to customize dye and hardware.</p>
+        </header>
+      )}
 
       <section className="product" aria-label="Coat preview">
+        {viewMode === "image" && coat && (
+          <div className="watermarkText" aria-hidden="true">
+            {coat.name.split(" ")[0]}
+          </div>
+        )}
         <div className="productGlow" />
+        <div className="stagePedestal" aria-hidden="true" />
 
-        <div className="viewToggle" role="group" aria-label="Preview mode">
-          {VIEW_MODES.map((mode) => (
-            <button
-              type="button"
-              key={mode.value}
-              className={viewMode === mode.value ? "active" : ""}
-              onClick={() => {
-                if (mode.value === viewMode) return;
-                setViewMode(mode.value);
-                // The canvas remounts when entering 3D, so the model must be drawn again before the loader hides
-                setReadyModel(null);
-              }}
-              aria-pressed={viewMode === mode.value}
-            >
-              {mode.label}
-            </button>
-          ))}
-        </div>
+        {viewMode === "3d" && (
+          <button type="button" className="backButton" onClick={() => changeView("image")} aria-label="Back to coats">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M10 3 5 8l5 5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Collection
+          </button>
+        )}
 
         {viewMode === "3d" && coatModel && (
           <button type="button" className="rotateToggle" onClick={() => setAutoRotate((on) => !on)} aria-pressed={autoRotate} aria-label="Auto-rotate model">
@@ -848,85 +1008,104 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
               <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" strokeLinecap="round" />
               <path d="M12.5 1.5v3h-3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            Rotate
+            360° Spin
           </button>
         )}
 
         {viewMode === "image" ? (
-          <CoatCarousel coats={coats} selected={selectedCoat} onSelect={setSelectedCoat} button={button} loading={previewIsLoading} onLoad={markImageLoaded} />
+          <CoatCarousel coats={coats} selected={selectedCoat} onSelect={setSelectedCoat} button={defaultPhotoButton} loading={previewIsLoading} onLoad={markImageLoaded} />
         ) : (
-        <div className={`preview3d ${modelPreviewIsLoading ? "isLoading" : ""}`} aria-busy={modelPreviewIsLoading}>
-          <PhotoLayers coat={coat} button={button} onLoad={markImageLoaded} />
-          {modelPreviewIsLoading && (
-            <div className="previewLoader" role="status">
-              <span className="spinner" />
-              <span>{modelIsLoading ? `Loading 3D model ${Math.round(modelProgress)}%` : "Preparing 3D view"}</span>
-            </div>
-          )}
-          {!coatModel && <p className="emptyPreview">Add a <code>.glb</code> with the same name as<br />the coat image to <code>public/coats</code></p>}
-          <Canvas
-            className="modelCanvas"
-            dpr={[1, 2]}
-            shadows={{ type: THREE.PCFShadowMap }}
-            camera={{ position: [CAMERA_TARGET[0], CAMERA_TARGET[1] + CAMERA_HEIGHT, CAMERA_DISTANCE], fov: CAMERA_FOV }}
-            style={{ width: "100%", height: "100%", position: "absolute", inset: 0, pointerEvents: "auto", background: "transparent" }}
-            gl={{
-              antialias: true,
-              outputColorSpace: THREE.SRGBColorSpace,
-              toneMapping: DEFAULT_LOOK.toneMapping,
-              toneMappingExposure: 0.55,
-              alpha: true,
-            }}
-          >
-            <ToneMapping look={modelLook(coatModel)} />
-            <StudioKey look={modelLook(coatModel)} />
-
-            {coatModel && (
-              <Suspense fallback={null}>
-                <group position={MODEL_OFFSET} rotation={[0, MODEL_YAW, 0]}>
-                  <Center key={coatModel}>
-                    <CoatModel url={coatModel} button={button}>
-                      {MODEL_BUTTON_NODES[modelName(coatModel)] || !button ? null : <ButtonModel selectedButtonOption={button} />}
-                    </CoatModel>
-                    <ModelReady url={coatModel} onReady={setReadyModel} />
-                  </Center>
-                </group>
-              </Suspense>
+          <div className={`preview3d ${modelPreviewIsLoading ? "isLoading" : ""}`} aria-busy={modelPreviewIsLoading}>
+            <PhotoLayers coat={coat} button={defaultPhotoButton} onLoad={markImageLoaded} />
+            {modelPreviewIsLoading && (
+              <div className="previewLoader" role="status">
+                <span className="spinner" />
+                <span>{modelIsLoading ? `Loading 3D model ${Math.round(modelProgress)}%` : "Preparing 3D view"}</span>
+              </div>
             )}
+            {!coatModel && <p className="emptyPreview">Add a <code>.glb</code> with the same name as<br />the coat image to <code>public/coats</code></p>}
+            <Canvas
+              className="modelCanvas"
+              dpr={[1, 2]}
+              shadows={{ type: THREE.PCFShadowMap }}
+              camera={{ position: [CAMERA_TARGET[0], CAMERA_TARGET[1] + CAMERA_HEIGHT, CAMERA_DISTANCE], fov: CAMERA_FOV }}
+              style={{ width: "100%", height: "100%", position: "absolute", inset: 0, pointerEvents: "auto", background: "transparent" }}
+              gl={{
+                antialias: true,
+                outputColorSpace: THREE.SRGBColorSpace,
+                toneMapping: DEFAULT_LOOK.toneMapping,
+                toneMappingExposure: 0.55,
+                alpha: true,
+              }}
+            >
+              <ToneMapping look={modelLook(coatModel)} />
+              <StudioKey look={modelLook(coatModel)} />
 
-            <OrbitControls
-              target={CAMERA_TARGET}
-              enableZoom={true}
-              enableRotate={true}
-              enablePan={false}
-              autoRotate={autoRotate}
-              autoRotateSpeed={1.2}
-              // Much closer than the photo framing turns the pinstripe into a corduroy close-up.
-              minDistance={CAMERA_DISTANCE * 0.8}
-              maxDistance={CAMERA_DISTANCE * 1.7}
-            />
-          </Canvas>
-        </div>
+              {coatModel && (
+                <Suspense fallback={null}>
+                  <group position={MODEL_OFFSET} rotation={[0, MODEL_YAW, 0]}>
+                    <Center key={coatModel}>
+                      <CoatModel url={coatModel} button={button} color={coatColor}>
+                        {MODEL_BUTTON_NODES[modelName(coatModel)] || !button ? null : <ButtonModel selectedButtonOption={button} />}
+                      </CoatModel>
+                      <ModelReady url={coatModel} onReady={setReadyModel} />
+                    </Center>
+                  </group>
+                </Suspense>
+              )}
+
+              <OrbitControls
+                target={CAMERA_TARGET}
+                enableZoom={true}
+                enableRotate={true}
+                enablePan={false}
+                autoRotate={autoRotate}
+                autoRotateSpeed={1.2}
+                minDistance={CAMERA_DISTANCE * 0.8}
+                maxDistance={CAMERA_DISTANCE * 1.7}
+              />
+            </Canvas>
+          </div>
         )}
       </section>
 
-      <aside className="controls" aria-label="Customize your coat">
-        <OptionGroup title="01 — Select coat variant" options={coats} selected={selectedCoat} onSelect={setSelectedCoat} type="coat" emptyMessage="Add coat options" />
-        <OptionGroup title="02 — Select buttons" options={buttons} selected={selectedButton} onSelect={setSelectedButton} type="button" emptyMessage="Add button photos to public/buttons/thumbs" />
-        <div className="selectionSummary" aria-live="polite">
-          <span>Your selection</span>
-          <strong>{coat?.name ?? "No coat"} / {button?.name ?? "No buttons"}</strong>
+      {viewMode === "image" && coat && (
+        <div className="selectBar">
+          <div className="selectDock">
+            <div className="selectInfo">
+              <span className="selectIndex">0{selectedCoat + 1} / 0{coats.length}</span>
+              <strong aria-live="polite">{coat.name}</strong>
+              {coats.length > 1 && (
+                <div className="carouselDots" role="tablist" aria-label="Select coat">
+                  {coats.map((item, idx) => (
+                    <button
+                      key={item.src}
+                      type="button"
+                      role="tab"
+                      aria-selected={idx === selectedCoat}
+                      aria-label={`View ${item.name}`}
+                      className={`carouselDot ${idx === selectedCoat ? "active" : ""}`}
+                      onClick={() => setSelectedCoat(idx)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            <button type="button" className="cta" onClick={() => changeView("3d")}>
+              <span>Customize</span>
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <path d="m6 3 5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
         </div>
-      </aside>
+      )}
     </main>
   );
 }
 
-// Image view: every coat stands in one row, the selected one in the centre and its neighbours either side.
-// The row is a ring, so three coats are always on screen; moving it only changes which coat is selected,
-// which is what the 3D view loads. The chosen button is laid over all of them.
-const SLOT_SPACING = 55; // percent of a coat's own width between neighbouring slots
-const SIDE_SCALE = 0.68;
+const SLOT_SPACING = 68;
+const SIDE_SCALE = 0.78;
 const SWIPE_DISTANCE = 45;
 
 function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
@@ -943,7 +1122,6 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
     if (count > 1) onSelect((current) => (current + direction + count) % count);
   }, [count, onSelect]);
 
-  // Slot of each coat relative to the selected one: 0 is the centre, -1 the left neighbour, 1 the right
   const half = Math.floor(count / 2);
   const items = coats
     .map((coat, index) => ({
@@ -953,7 +1131,6 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
     }))
     .filter((item) => Math.abs(item.slot) <= 2);
 
-  // A coat that wraps from one end of the ring to the other must not slide across the others
   const wrapped = (src: string, slot: number) => {
     const before = previousSlots.current.get(src);
     return before !== undefined && Math.abs(slot - before) > 1;
@@ -962,7 +1139,6 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
     previousSlots.current = new Map(items.map((item) => [item.coat.src, item.slot]));
   });
 
-  // Sideways scrolling (trackpad or tilt wheel) moves the row by one coat per gesture
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
@@ -970,7 +1146,6 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
     const onWheel = (event: WheelEvent) => {
       if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
       event.preventDefault();
-      // Inertia keeps the events coming after the fingers lift, so the gesture ends when they stop
       const active = gesture !== undefined;
       clearTimeout(gesture);
       gesture = setTimeout(() => { gesture = undefined; }, 160);
@@ -1013,11 +1188,11 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
         onPointerCancel={() => { swipeStart.current = null; }}
         onDragStart={(event) => event.preventDefault()}
       >
-        {loading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing your coat</span></div>}
+        {loading && <div className="previewLoader" role="status"><span className="spinner" /><span>Preparing garment</span></div>}
         {items.map(({ coat, index, slot }) => {
           const distance = Math.abs(slot);
           const scale = distance === 0 ? 1 : SIDE_SCALE ** distance;
-          const classes = ["carouselItem", slot === 0 ? "" : "side", wrapped(coat.src, slot) ? "wrapped" : ""].join(" ");
+          const classes = ["carouselItem", slot === 0 ? "active" : "side", wrapped(coat.src, slot) ? "wrapped" : ""].join(" ");
           return (
             <div
               key={coat.src}
@@ -1027,8 +1202,8 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
               aria-hidden={distance > 1 ? true : undefined}
               style={{
                 transform: `translateX(${slot * SLOT_SPACING}%) scale(${scale})`,
-                opacity: distance <= 1 ? 1 : 0,
-                zIndex: distance === 0 ? 2 : 1,
+                opacity: distance === 0 ? 1 : distance === 1 ? 0.85 : distance === 2 ? 0.4 : 0,
+                zIndex: 3 - distance,
                 pointerEvents: distance > 1 ? "none" : undefined,
               }}
               onClick={() => {
@@ -1111,6 +1286,26 @@ function OptionGroup({ title, options, selected, onSelect, type, emptyMessage }:
           )}
         </>
       ) : <p className="emptyOptions">{emptyMessage}</p>}
+    </fieldset>
+  );
+}
+
+function ColorGroup({ title, options, selected, onSelect }: {
+  title: string; options: ClothColor[]; selected: number; onSelect: (index: number) => void;
+}) {
+  return (
+    <fieldset className="optionGroup">
+      <legend>{title}</legend>
+      {options.length ? (
+        <div className="colorGrid">
+          {options.map((option, index) => (
+            <button type="button" key={option.name} className={`colorOption ${selected === index ? "selected" : ""}`} onClick={() => onSelect(index)} aria-pressed={selected === index} aria-label={`Choose ${option.name}`}>
+              <span className="colorChip" style={{ background: option.swatch }} />
+              <span>{option.name}</span>
+            </button>
+          ))}
+        </div>
+      ) : <p className="emptyOptions">No colour options for this coat</p>}
     </fieldset>
   );
 }
