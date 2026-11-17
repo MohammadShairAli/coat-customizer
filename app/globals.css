@@ -6,7 +6,7 @@ html, body { min-height: 100%; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: Arial, Helvetica, sans-serif; }
 button { font: inherit; }
 
-.customizer { min-height: 100vh; display: grid; grid-template-columns: minmax(240px, .72fr) minmax(360px, 1.3fr) minmax(300px, .85fr); overflow: hidden; }
+.customizer { min-height: 100vh; display: grid; grid-template-columns: minmax(220px, .62fr) minmax(360px, 1.6fr) minmax(290px, .85fr); overflow: hidden; }
 .intro, .controls { padding: clamp(32px, 5vw, 76px); }
 .intro { display: flex; flex-direction: column; justify-content: center; border-right: 1px solid var(--line); }
 .eyebrow, legend, .selectionSummary span { margin: 0 0 24px; color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; }
@@ -35,6 +35,23 @@ h1 { max-width: 420px; margin: 0; font-family: Georgia, "Times New Roman", serif
 .rotateToggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .rotateToggle svg { width: 13px; height: 13px; }
 .rotateToggle[aria-pressed="true"] svg { animation: spin 2.4s linear infinite; }
+/* Image view: three coats in a row, the selected one large in the centre. Same box height as the old single photo scaled to the centre coat's width. */
+.carousel { position: relative; width: 100%; max-width: 980px; aspect-ratio: 1.364; transform: translateY(7%); touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.carousel:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.carousel img { -webkit-user-drag: none; }
+.carouselItem { position: absolute; top: 0; left: 18%; width: 64%; aspect-ratio: 3840 / 4398; transform-origin: 50% 50%; filter: drop-shadow(0 28px 28px rgba(39, 30, 23, .18)); transition: transform .55s cubic-bezier(.22, .8, .26, 1), opacity .55s ease; }
+.carouselItem.side { cursor: pointer; }
+.carouselItem.wrapped { transition: none; animation: slotIn .5s ease-out; }
+.carousel.isLoading .layer { opacity: 0; }
+@keyframes slotIn { from { opacity: 0; } }
+/* Arrows only appear while the pointer is over the preview (or when focused with the keyboard) */
+.carouselArrow { position: absolute; top: 54%; z-index: 4; display: grid; place-items: center; width: 52px; height: 52px; padding: 0; color: var(--ink); background: rgba(255, 255, 255, .55); border: 1px solid var(--line); border-radius: 50%; box-shadow: 0 8px 24px rgba(39, 30, 23, .14); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .3s ease, transform .3s ease, color .2s, background .2s; }
+.carouselArrow.prev { left: clamp(12px, 2.5vw, 32px); transform: translate(-10px, -50%); }
+.carouselArrow.next { right: clamp(12px, 2.5vw, 32px); transform: translate(10px, -50%); }
+.product:hover .carouselArrow, .carouselArrow:focus-visible { opacity: 1; pointer-events: auto; transform: translate(0, -50%); }
+.carouselArrow:hover { color: var(--paper); background: var(--ink); }
+.carouselArrow:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.carouselArrow svg { width: 18px; height: 18px; }
 .layer { object-fit: contain; opacity: 1; transition: opacity .25s ease; }
 .preview.isLoading .layer { opacity: 0; }
 /* Centred on the projected 3D button; the aspect ratio keeps the box square at any preview width */
@@ -60,8 +77,8 @@ legend { width: 100%; margin-bottom: 12px; color: #666d69; }
 .option:hover { transform: translateY(-2px); border-color: var(--ink); }
 .option:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .option.selected { color: var(--ink); background: rgba(255,255,255,.55); border-color: var(--ink); }
-.option i { position: absolute; right: 8px; bottom: 13px; width: 7px; height: 7px; border-radius: 50%; background: transparent; }
-.option.selected i { background: var(--accent); }
+/* .option i { position: absolute; right: 8px; bottom: 13px; width: 7px; height: 7px; border-radius: 50%; background: transparent; }
+.option.selected i { background: var(--accent); } */
 .swatch { position: relative; width: 100%; height: 64px; overflow: hidden; background: #e7e1d5; }
 .swatch img { object-fit: contain; }
 .swatch.coat img { padding: 5px; }
@@ -82,6 +99,18 @@ legend { width: 100%; margin-bottom: 12px; color: #666d69; }
 .selectionSummary span { display: block; margin-bottom: 8px; color: #777d79; }
 .selectionSummary strong { font-family: Georgia, serif; font-size: 20px; font-weight: 400; }
 
+/* Desktop: slimmer side padding gives the preview in the middle more room */
+@media (min-width: 981px) {
+  .intro, .controls { padding-inline: clamp(20px, 2.4vw, 40px); }
+  /* One screen, no page scroll: the page is exactly the window tall, and a side column scrolls inside itself if the window is very short */
+  .customizer { height: 100vh; height: 100dvh; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .product { min-height: 0; }
+  .selectionSummary { display: none; }
+  /* The coat is nudged down 7%, so a preview box can use about 88% of the window height before it would be cut off */
+  .preview3d { width: min(100%, 680px, 74vh); width: min(100%, 680px, 74dvh); }
+  .carousel { max-width: min(980px, 115vh); max-width: min(980px, 115dvh); }
+}
+
 @media (max-width: 980px) {
   .customizer { grid-template-columns: 1fr 1.2fr; overflow: visible; }
   .intro { min-height: 38vh; border-right: 0; }
@@ -98,11 +127,21 @@ legend { width: 100%; margin-bottom: 12px; color: #666d69; }
   .controls { order: 3; padding-top: 42px; }
   .productGlow { width: 82vw; }
   .preview, .preview3d { width: min(100%, 470px); }
-  .rotateToggle { top: auto; right: 16px; bottom: 16px; }
+  /* Mode switch and Rotate share the top row, pulled up closer to the edge */
+  .viewToggle { top: 10px; }
+  .viewToggle button { min-width: 60px; padding: 8px 12px; }
+  .rotateToggle { top: 10px; right: 12px; height: 38px; gap: 6px; padding: 0 10px; }
+}
+
+@media (max-width: 380px) {
+  .viewToggle button { min-width: 52px; padding: 8px 10px; }
+  .rotateToggle { right: 8px; padding: 0 8px; font-size: 9px; letter-spacing: .08em; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .option, .layer, .preview3d .layer, .modelCanvas { transition: none; }
+  .option, .layer, .preview3d .layer, .modelCanvas, .carouselItem { transition: none; }
+  .carouselItem.wrapped { animation: none; }
+  .carouselArrow { transition: none; }
   .spinner { animation-duration: 1.5s; }
   .rotateToggle[aria-pressed="true"] svg { animation: none; }
 }
