@@ -11,7 +11,8 @@ const DISPLAY_NAMES: Record<string, string> = {
   "coat-1": "Charcoal Pinstripe",
   "coat-2": "Sage Corduroy",
   "coat-3": "Camel Twill",
-  "coat-5": "Teal Tartan Plaid", // <-- Add display name
+  "coat-5": "Highland Check",
+  "coat-4": "Cream Linen", // <-- Add display name
   black: "Jet Black",
   gray: "Slate Grey",
   white: "Ivory White",
