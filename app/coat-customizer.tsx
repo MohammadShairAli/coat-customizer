@@ -24,10 +24,41 @@ const MODEL_HEIGHT = 0.7556;
 
 type PhotoButton = { x: number; y: number };
 const BUILT_IN_PHOTO_BUTTONS: PhotoButton[] = [{ x: 51.38, y: 48.13 }, { x: 48.84, y: 61.16 }];
+
+// --- COAT-4: FRONT CAROUSEL ONLY ---
+const COAT_4_FRONT_BUTTONS: PhotoButton[] = [
+  { x: 50.4, y: 54.5 },
+  { x: 47.2, y: 64.2 },
+];
+const COAT_4_FRONT_BUTTON_WIDTH = 3.1575; // <-- Change Coat-4 Front Page button size (%) here
+
+// --- COAT-4: CUSTOMIZER STUDIO ONLY ---
+const COAT_4_STUDIO_BUTTONS: PhotoButton[] = [
+  { x: 50.4, y: 54.5 },
+  { x: 47.2, y: 64.2 },
+];
+const COAT_4_STUDIO_BUTTON_WIDTH = 3.05; // <-- Change Coat-4 Customizer button size (%) here
+
+// --- COAT-5: FRONT CAROUSEL ONLY ---
+const COAT_5_FRONT_BUTTONS: PhotoButton[] = [
+  { x: 50.3, y: 55.5 },
+  { x: 48.4, y: 65.6 },
+];
+const COAT_5_FRONT_BUTTON_WIDTH = 3.0575; // <-- Change Coat-5 Front Page button size (%) here
+
+// --- COAT-5: CUSTOMIZER STUDIO ONLY ---
+const COAT_5_STUDIO_BUTTONS: PhotoButton[] = [
+  { x: 50.35, y: 55.55 },
+  { x: 48.4, y: 65.6 },
+];
+const COAT_5_STUDIO_BUTTON_WIDTH = 3.05; // <-- Change Coat-5 Customizer button size (%) here
+
 const PHOTO_BUTTONS: Record<string, PhotoButton[]> = {
   "Coat-1": BUILT_IN_PHOTO_BUTTONS,
   "Coat-2": BUILT_IN_PHOTO_BUTTONS,
   "Coat-3": BUILT_IN_PHOTO_BUTTONS,
+  "Coat-4": COAT_4_FRONT_BUTTONS,
+  "Coat-5": COAT_5_FRONT_BUTTONS,
 };
 const DEFAULT_PHOTO_BUTTONS: PhotoButton[] = [{ x: 51.37, y: 48.3 }, { x: 47.6, y: 61.7 }];
 const PHOTO_BUTTON_WIDTH = 2.75 / 0.8;
@@ -40,6 +71,14 @@ const MODEL_BUTTON_NODES: Record<string, string[]> = {
 
 function modelName(url?: string) {
   return url?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "";
+}
+
+function isCoat4Key(key: string) {
+  return key === "Coat-4";
+}
+
+function isCoat5Key(key: string) {
+  return key === "Coat-5";
 }
 
 type ClothSettings = {
@@ -460,17 +499,31 @@ function finishBuiltInButtons(scene: THREE.Object3D, nodes: string[], finish: Bu
 
 type ClothColor = { name: string; swatch: string; color?: string };
 
+const COAT_4_COLORS: ClothColor[] = [
+  { name: "Cream Linen", swatch: "#e8d89c" },
+  { name: "Midnight Navy", swatch: "#1e2e4a", color: "#273b5e" },
+  { name: "Olive Sage", swatch: "#556347", color: "#687857" },
+  { name: "Warm Terracotta", swatch: "#9e4b36", color: "#b55840" },
+];
+
+const COAT_5_COLORS: ClothColor[] = [
+  { name: "Teal Tartan", swatch: "#148296" },
+  { name: "Royal Burgundy", swatch: "#7a1c34", color: "#ad3d59" },
+  { name: "Midnight Navy", swatch: "#1c2e4a", color: "#3b5680" },
+  { name: "Weige Brown", swatch: "#5e4339", color: "#916e60" },
+];
+
 // Classic, refined menswear coat shades tailored to each coat's fabric weave
 const MODEL_COLORS: Record<string, ClothColor[]> = {
   "Coat-1": [
     { name: "Charcoal", swatch: "#3b3c40" },
     { name: "Midnight Navy", swatch: "#1e293b", color: "#213047" },
-    { name: "Espresso", swatch: "#78412c", color: "#6b483a" }, // Richer, premium cognac-espresso tone
+    { name: "Espresso", swatch: "#78412c", color: "#6b483a" },
     { name: "Slate Grey", swatch: "#4b5158", color: "#4e555e" },
   ],
   "Coat-2": [
     { name: "Sage Olive", swatch: "#8b9680" },
-    { name: "Deep Navy", swatch: "#141c28", color: "#172335" }, // Deeper, rich midnight-navy tone
+    { name: "Deep Navy", swatch: "#141c28", color: "#172335" },
     { name: "Chestnut", swatch: "#593828", color: "#663f2c" },
     { name: "Warm Taupe", swatch: "#6e655c", color: "#756b61" },
   ],
@@ -480,6 +533,8 @@ const MODEL_COLORS: Record<string, ClothColor[]> = {
     { name: "Loden Olive", swatch: "#484d36", color: "#4f543b" },
     { name: "Heather Grey", swatch: "#4a4c50", color: "#525559" },
   ],
+  "Coat-4": COAT_4_COLORS,
+  "Coat-5": COAT_5_COLORS,
 };
 
 const FALLBACK_CLOTH_LUMA: Record<string, number> = { "Coat-1": 0.045, "Coat-2": 0.22, "Coat-3": 0.22 };
@@ -756,8 +811,12 @@ const BUTTON_FINISHES: Record<string, ButtonFinish> = {
   green: { color: "#1e4620", metalness: 0, roughness: 0.45, env: 0.35, specular: 0.4 },
 };
 
+function buttonKeyFromOption(option?: CustomizerOption) {
+  return option?.src.split("/").pop()?.replace(/\.[^.]+$/, "").toLowerCase() ?? "";
+}
+
 function buttonFinish(option?: CustomizerOption) {
-  const key = option?.src.split("/").pop()?.replace(/\.[^.]+$/, "").toLowerCase() ?? "";
+  const key = buttonKeyFromOption(option);
   return BUTTON_FINISHES[key] ?? BUTTON_FINISHES.black;
 }
 
@@ -927,12 +986,13 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
 
   const coat = coats[selectedCoat];
   const button = buttons[selectedButton];
-  // 2D images always display only the first available button
-  const defaultPhotoButton = buttons[0];
+  // 2D carousel always displays the black button by default
+  const defaultPhotoButton = buttons.find((b) => b.src.toLowerCase().includes("black")) ?? buttons[0];
   const coatModel = coat?.model;
+  const activeCoatKey = modelName(coatModel ?? coat?.src);
   const modelPreviewIsLoading = Boolean(coatModel && readyModel !== coatModel);
   const previewIsLoading = Boolean(coat && !loadedImages.has(coat.src));
-  const colorOptions = MODEL_COLORS[modelName(coatModel)] ?? [];
+  const colorOptions = MODEL_COLORS[activeCoatKey] ?? [];
   const colorIndex = coat ? Math.min(coatColors[coat.src] ?? 0, Math.max(colorOptions.length - 1, 0)) : 0;
   const coatColor = colorOptions[colorIndex]?.color;
 
@@ -1016,6 +1076,20 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
 
         {viewMode === "image" ? (
           <CoatCarousel coats={coats} selected={selectedCoat} onSelect={setSelectedCoat} button={defaultPhotoButton} loading={previewIsLoading} onLoad={markImageLoaded} />
+        ) : !coatModel && coat ? (
+          <div
+            className="preview3d"
+            style={{
+              position: "relative",
+              width: "100%",
+              height: "100%",
+              opacity: 1,
+              visibility: "visible",
+              zIndex: 3,
+            }}
+          >
+            <PhotoStudioView coat={coat} color={coatColor} button={button} />
+          </div>
         ) : (
           <div className={`preview3d ${modelPreviewIsLoading ? "isLoading" : ""}`} aria-busy={modelPreviewIsLoading}>
             <PhotoLayers coat={coat} button={defaultPhotoButton} onLoad={markImageLoaded} />
@@ -1025,7 +1099,6 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
                 <span>{modelIsLoading ? `Loading 3D model ${Math.round(modelProgress)}%` : "Preparing 3D view"}</span>
               </div>
             )}
-            {!coatModel && <p className="emptyPreview">Add a <code>.glb</code> with the same name as<br />the coat image to <code>public/coats</code></p>}
             <Canvas
               className="modelCanvas"
               dpr={[1, 2]}
@@ -1246,21 +1319,122 @@ function CoatCarousel({ coats, selected, onSelect, button, loading, onLoad }: {
   );
 }
 
+function FittedCoatStage({
+  aspectRatio,
+  children,
+}: {
+  aspectRatio: number;
+  children: ReactNode;
+}) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = hostRef.current;
+    if (!el) return;
+
+    const update = () => {
+      const cw = el.clientWidth;
+      const ch = el.clientHeight;
+      if (!cw || !ch || !aspectRatio) return;
+
+      const containerRatio = cw / ch;
+      let width: number;
+      let height: number;
+      if (containerRatio > aspectRatio) {
+        height = ch;
+        width = ch * aspectRatio;
+      } else {
+        width = cw;
+        height = cw / aspectRatio;
+      }
+      setBox({
+        left: (cw - width) / 2,
+        top: (ch - height) / 2,
+        width,
+        height,
+      });
+    };
+
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [aspectRatio]);
+
+  return (
+    <div ref={hostRef} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+      {box && (
+        <div
+          style={{
+            position: "absolute",
+            left: box.left,
+            top: box.top,
+            width: box.width,
+            height: box.height,
+            pointerEvents: "none",
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PhotoLayers({ coat, button, onLoad, priority = true }: { coat?: CustomizerOption; button?: CustomizerOption; onLoad: (src: string) => void; priority?: boolean }) {
+  const [aspectRatio, setAspectRatio] = useState<number>(3 / 4);
+
   if (!coat) return null;
-  const positions = PHOTO_BUTTONS[modelName(coat.model ?? coat.src)] ?? DEFAULT_PHOTO_BUTTONS;
+  const key = modelName(coat.model ?? coat.src);
+  const positions = PHOTO_BUTTONS[key] ?? DEFAULT_PHOTO_BUTTONS;
+  const isCoat4 = isCoat4Key(key);
+  const isCoat5 = isCoat5Key(key);
+  const frontButtonWidth = isCoat4 ? COAT_4_FRONT_BUTTON_WIDTH : COAT_5_FRONT_BUTTON_WIDTH;
+
   return (
     <>
-      <Image src={coat.src} alt={`${coat.name} coat`} fill priority={priority} sizes="(max-width: 800px) 90vw, 50vw" className="layer" onLoad={() => onLoad(coat.src)} />
-      {button && positions.map((position, index) => (
-        <span
-          key={index}
-          className="layer photoButton"
-          style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${PHOTO_BUTTON_WIDTH}%` }}
-        >
-          <Image src={button.src} alt={index === 0 ? `${button.name} buttons` : ""} fill sizes="48px" />
+      <Image
+        src={coat.src}
+        alt={`${coat.name} coat`}
+        fill
+        priority={priority}
+        sizes="(max-width: 800px) 90vw, 50vw"
+        className="layer"
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          if (img.naturalWidth && img.naturalHeight) {
+            setAspectRatio(img.naturalWidth / img.naturalHeight);
+          }
+          onLoad(coat.src);
+        }}
+      />
+      {button && (isCoat4 || isCoat5 ? (
+        <FittedCoatStage aspectRatio={aspectRatio}>
+          {positions.map((position, index) => (
+            <span
+              key={index}
+              className="photoButton"
+              style={{
+                position: "absolute",
+                left: `${position.x}%`,
+                top: `${position.y}%`,
+                width: `${frontButtonWidth}%`,
+                aspectRatio: "1 / 1",
+                height: "auto",
+                transform: "translate(-50%, -50%)",
+                pointerEvents: "none",
+              }}
+            >
+              <Image src={button.src} alt={index === 0 ? `${button.name} buttons` : ""} fill sizes="48px" style={{ objectFit: "contain" }} />
+            </span>
+          ))}
+        </FittedCoatStage>
+      ) : positions.map((position, index) => (
+        <span key={index} className="layer photoButton" style={{ left: `${position.x}%`, top: `${position.y}%`, width: `${PHOTO_BUTTON_WIDTH}%` }}>
+          <Image src={button.src} alt={index === 0 ? `${button.name} buttons` : ""} fill sizes="48px" style={{ objectFit: "contain" }} />
         </span>
-      ))}
+      )))}
     </>
   );
 }
@@ -1321,5 +1495,341 @@ function ColorGroup({ title, options, selected, onSelect }: {
         </div>
       ) : <p className="emptyOptions">No colour options for this coat</p>}
     </fieldset>
+  );
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return [h, s, l];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) {
+    const v = Math.round(l * 255);
+    return [v, v, v];
+  }
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return [
+    Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+    Math.round(hue2rgb(p, q, h) * 255),
+    Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+  ];
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  return [
+    parseInt(clean.substring(0, 2), 16),
+    parseInt(clean.substring(2, 4), 16),
+    parseInt(clean.substring(4, 6), 16),
+  ];
+}
+
+// Exterior background mask supporting both dark and light/off-white studio backdrops
+function computeExteriorMask(data: Uint8ClampedArray, width: number, height: number): Uint8Array {
+  const total = width * height;
+  const isBg = new Uint8Array(total);
+  const stack = new Int32Array(total);
+  let top = 0;
+
+  let borderLumaSum = 0;
+  let borderSamples = 0;
+  for (let x = 0; x < width; x += 4) {
+    const topIdx = x * 4;
+    const botIdx = ((height - 1) * width + x) * 4;
+    borderLumaSum += 0.2126 * data[topIdx] + 0.7152 * data[topIdx + 1] + 0.0722 * data[topIdx + 2];
+    borderLumaSum += 0.2126 * data[botIdx] + 0.7152 * data[botIdx + 1] + 0.0722 * data[botIdx + 2];
+    borderSamples += 2;
+  }
+  const isLightBackdrop = borderSamples > 0 && borderLumaSum / borderSamples > 170;
+
+  const isBackdropPixel = (idx: number) => {
+    const p = idx * 4;
+    const r = data[p];
+    const g = data[p + 1];
+    const b = data[p + 2];
+    if (isLightBackdrop) {
+      const maxC = Math.max(r, g, b);
+      const minC = Math.min(r, g, b);
+      return minC > 215 && maxC - minC < 22;
+    }
+    return r <= 5 && g <= 5 && b <= 5;
+  };
+
+  // Protected zones: main coat silhouette + hands/wrists + mannequin stand
+  const isProtected = (x: number, y: number) => {
+    const nx = x / width;
+    const ny = y / height;
+    const inTorso = nx > 0.20 && nx < 0.80 && ny > 0.16 && ny < 0.90;
+    const inLeftHandAndWrist = nx > 0.14 && nx < 0.35 && ny > 0.76 && ny < 0.98;
+    const inRightHandAndWrist = nx > 0.65 && nx < 0.86 && ny > 0.76 && ny < 0.98;
+    const inStand = nx > 0.44 && nx < 0.56 && ny > 0.84 && ny <= 1.0;
+    return inTorso || inLeftHandAndWrist || inRightHandAndWrist || inStand;
+  };
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = y * width + x;
+      if (isProtected(x, y) || !isBackdropPixel(idx)) break;
+      isBg[idx] = 1;
+    }
+    for (let x = width - 1; x >= 0; x--) {
+      const idx = y * width + x;
+      if (isProtected(x, y) || !isBackdropPixel(idx)) break;
+      isBg[idx] = 1;
+    }
+  }
+
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      const idx = y * width + x;
+      if (isProtected(x, y) || !isBackdropPixel(idx)) break;
+      isBg[idx] = 1;
+    }
+  }
+
+  for (let i = 0; i < total; i++) {
+    if (isBg[i]) stack[top++] = i;
+  }
+
+  while (top > 0) {
+    const curr = stack[--top];
+    const x = curr % width;
+    const y = (curr - x) / width;
+
+    if (isProtected(x, y)) continue;
+
+    if (x > 0) {
+      const n = curr - 1;
+      if (!isBg[n] && !isProtected(x - 1, y) && isBackdropPixel(n)) { isBg[n] = 1; stack[top++] = n; }
+    }
+    if (x < width - 1) {
+      const n = curr + 1;
+      if (!isBg[n] && !isProtected(x + 1, y) && isBackdropPixel(n)) { isBg[n] = 1; stack[top++] = n; }
+    }
+    if (y > 0) {
+      const n = curr - width;
+      if (!isBg[n] && !isProtected(x, y - 1) && isBackdropPixel(n)) { isBg[n] = 1; stack[top++] = n; }
+    }
+    if (y < height - 1) {
+      const n = curr + width;
+      if (!isBg[n] && !isProtected(x, y + 1) && isBackdropPixel(n)) { isBg[n] = 1; stack[top++] = n; }
+    }
+  }
+
+  return isBg;
+}
+
+function PhotoStudioView({ coat, color, button }: { coat: CustomizerOption; color?: string; button?: CustomizerOption }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const baseImageRef = useRef<ImageData | null>(null);
+  const bgMaskRef = useRef<Uint8Array | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<number>(3 / 4);
+
+  const key = modelName(coat.model ?? coat.src);
+  const isCoat4 = isCoat4Key(key);
+  const isCoat5 = isCoat5Key(key);
+  const positions = isCoat4
+    ? COAT_4_STUDIO_BUTTONS
+    : isCoat5
+      ? COAT_5_STUDIO_BUTTONS
+      : (PHOTO_BUTTONS[key] ?? DEFAULT_PHOTO_BUTTONS);
+  const studioButtonWidth = isCoat4
+    ? COAT_4_STUDIO_BUTTON_WIDTH
+    : isCoat5
+      ? COAT_5_STUDIO_BUTTON_WIDTH
+      : PHOTO_BUTTON_WIDTH;
+
+  const renderPixels = useCallback(() => {
+    const canvas = canvasRef.current;
+    const base = baseImageRef.current;
+    const bgMask = bgMaskRef.current;
+    if (!canvas || !base || !bgMask) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const { width, height, data: srcData } = base;
+    const output = ctx.createImageData(width, height);
+    const dst = output.data;
+
+    const targetClothHsl = color ? rgbToHsl(...hexToRgb(color)) : null;
+
+    for (let y = 0; y < height; y++) {
+      const ny = y / height;
+      for (let x = 0; x < width; x++) {
+        const nx = x / width;
+        const pixelIndex = y * width + x;
+        const i = pixelIndex * 4;
+
+        // Exterior backdrop -> transparent
+        if (bgMask[pixelIndex]) {
+          dst[i] = 0;
+          dst[i + 1] = 0;
+          dst[i + 2] = 0;
+          dst[i + 3] = 0;
+          continue;
+        }
+
+        const r = srcData[i];
+        const g = srcData[i + 1];
+        const b = srcData[i + 2];
+        const a = srcData[i + 3];
+
+        const [h, s, l] = rgbToHsl(r, g, b);
+
+        if (isCoat4) {
+          // Non-fabric regions: full wooden neck block, full wooden hands & wrists (narrow x so coat hem stays untouched), stand pole, and dark inner shirt
+          const inUpperNeckWood = nx > 0.425 && nx < 0.575 && ny < 0.205;
+          const inLowerNeckWood = nx > 0.432 && nx < 0.568 && ny >= 0.205 && ny < 0.248;
+          const inLeftHand = nx > 0.150 && nx < 0.265 && ny > 0.818;
+          const inRightHand = nx > 0.735 && nx < 0.850 && ny > 0.818;
+          const inStandPole = nx > 0.47 && nx < 0.53 && ny > 0.875;
+          const inDarkChestOpening = nx > 0.42 && nx < 0.56 && ny > 0.235 && ny < 0.53 && l < 0.16;
+
+          const isExcluded =
+            inUpperNeckWood ||
+            inLowerNeckWood ||
+            inLeftHand ||
+            inRightHand ||
+            inStandPole ||
+            inDarkChestOpening;
+
+          const isCreamLinen =
+            !isExcluded &&
+            l > 0.13 &&
+            l < 0.95 &&
+            s >= 0.015 &&
+            s <= 0.82 &&
+            h >= 0.042 &&
+            h <= 0.26;
+
+          if (targetClothHsl && isCreamLinen) {
+            const [tH, tS, tL] = targetClothHsl;
+            const lumaRatio = Math.min(1.35, Math.max(0.35, l / 0.68));
+            const newL = Math.min(0.94, Math.max(0.06, tL * lumaRatio));
+            const newS = Math.min(0.92, Math.max(0.12, tS * (0.85 + (s / 0.45) * 0.15)));
+            const [nr, ng, nb] = hslToRgb(tH, newS, newL);
+            dst[i] = nr;
+            dst[i + 1] = ng;
+            dst[i + 2] = nb;
+          } else {
+            dst[i] = r;
+            dst[i + 1] = g;
+            dst[i + 2] = b;
+          }
+          dst[i + 3] = a;
+          continue;
+        }
+
+        // Coat-5 / Teal Tartan: target only the teal/cyan plaid fabric
+        const isCoatFabric = l > 0.025 && s > 0.18 && h >= 0.40 && h <= 0.62;
+        if (targetClothHsl && isCoatFabric) {
+          const [tH, tS, tL] = targetClothHsl;
+          const newS = Math.min(1, tS * (s / 0.72));
+          const lightnessScale = tL < 0.35 ? 0.55 + tL : 0.95;
+          const newL = Math.min(1, l * lightnessScale);
+          const [nr, ng, nb] = hslToRgb(tH, newS, newL);
+          dst[i] = nr;
+          dst[i + 1] = ng;
+          dst[i + 2] = nb;
+        } else {
+          dst[i] = r;
+          dst[i + 1] = g;
+          dst[i + 2] = b;
+        }
+        dst[i + 3] = a;
+      }
+    }
+
+    ctx.putImageData(output, 0, 0);
+  }, [color, isCoat4]);
+
+  useEffect(() => {
+    const img = new window.Image();
+    img.src = coat.src;
+    img.onload = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      canvas.width = w;
+      canvas.height = h;
+      if (w && h) setAspectRatio(w / h);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      baseImageRef.current = imageData;
+      bgMaskRef.current = computeExteriorMask(imageData.data, canvas.width, canvas.height);
+      renderPixels();
+    };
+  }, [coat.src, renderPixels]);
+
+  useEffect(() => {
+    renderPixels();
+  }, [renderPixels]);
+
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          objectFit: "contain",
+          zIndex: 4,
+          pointerEvents: "none",
+        }}
+      />
+      {button && (
+        <FittedCoatStage aspectRatio={aspectRatio}>
+          {positions.map((position, index) => (
+            <span
+              key={index}
+              className="photoButton"
+              style={{
+                position: "absolute",
+                left: `${position.x}%`,
+                top: `${position.y}%`,
+                width: `${studioButtonWidth}%`,
+                aspectRatio: "1 / 1",
+                height: "auto",
+                transform: "translate(-50%, -50%)",
+                opacity: 1,
+                visibility: "visible",
+                zIndex: 6,
+                pointerEvents: "none",
+              }}
+            >
+              <Image src={button.src} alt={index === 0 ? `${button.name} buttons` : ""} fill sizes="48px" style={{ objectFit: "contain" }} />
+            </span>
+          ))}
+        </FittedCoatStage>
+      )}
+    </div>
   );
 }
