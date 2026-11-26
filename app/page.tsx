@@ -6,10 +6,12 @@ import CoatCustomizer, { type CustomizerOption } from "./coat-customizer";
 
 const SUPPORTED_IMAGE_TYPES = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"]);
 
+// page.tsx
 const DISPLAY_NAMES: Record<string, string> = {
   "coat-1": "Charcoal Pinstripe",
   "coat-2": "Sage Corduroy",
   "coat-3": "Camel Twill",
+  "coat-5": "Teal Tartan Plaid", // <-- Add display name
   black: "Jet Black",
   gray: "Slate Grey",
   white: "Ivory White",
@@ -19,7 +21,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 };
 
 // Picker order for coats; files not listed here follow in filename order.
-const COAT_ORDER = ["coat-3", "coat-2", "coat-1"];
+const COAT_ORDER = ["coat-3", "coat-2", "coat-1", "coat-5"]; // <-- Add to order
 
 function coatRank(filename: string) {
   const index = COAT_ORDER.indexOf(path.parse(filename).name.toLowerCase());

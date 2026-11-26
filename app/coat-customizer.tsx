@@ -28,6 +28,7 @@ const PHOTO_BUTTONS: Record<string, PhotoButton[]> = {
   "Coat-1": BUILT_IN_PHOTO_BUTTONS,
   "Coat-2": BUILT_IN_PHOTO_BUTTONS,
   "Coat-3": BUILT_IN_PHOTO_BUTTONS,
+  "Coat-5": [],
 };
 const DEFAULT_PHOTO_BUTTONS: PhotoButton[] = [{ x: 51.37, y: 48.3 }, { x: 47.6, y: 61.7 }];
 const PHOTO_BUTTON_WIDTH = 2.75 / 0.8;
@@ -465,12 +466,12 @@ const MODEL_COLORS: Record<string, ClothColor[]> = {
   "Coat-1": [
     { name: "Charcoal", swatch: "#3b3c40" },
     { name: "Midnight Navy", swatch: "#1e293b", color: "#213047" },
-    { name: "Espresso", swatch: "#78412c", color: "#6b483a" }, // Richer, premium cognac-espresso tone
+    { name: "Espresso", swatch: "#78412c", color: "#6b483a" },
     { name: "Slate Grey", swatch: "#4b5158", color: "#4e555e" },
   ],
   "Coat-2": [
     { name: "Sage Olive", swatch: "#8b9680" },
-    { name: "Deep Navy", swatch: "#141c28", color: "#172335" }, // Deeper, rich midnight-navy tone
+    { name: "Deep Navy", swatch: "#141c28", color: "#172335" },
     { name: "Chestnut", swatch: "#593828", color: "#663f2c" },
     { name: "Warm Taupe", swatch: "#6e655c", color: "#756b61" },
   ],
@@ -479,6 +480,13 @@ const MODEL_COLORS: Record<string, ClothColor[]> = {
     { name: "Oxford Navy", swatch: "#243147", color: "#273752" },
     { name: "Loden Olive", swatch: "#484d36", color: "#4f543b" },
     { name: "Heather Grey", swatch: "#4a4c50", color: "#525559" },
+  ],
+  "Coat-5": [
+    { name: "Teal Tartan", swatch: "#148296" },
+    { name: "Royal Burgundy", swatch: "#7a1c34", color: "#7a1c34" },
+    { name: "Midnight Navy", swatch: "#1c2e4a", color: "#1c2e4a" },
+    { name: "Emerald Forest", swatch: "#18593c", color: "#18593c" },
+    { name: "Charcoal Smoke", swatch: "#3d4045", color: "#3d4045" },
   ],
 };
 
@@ -927,12 +935,13 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
 
   const coat = coats[selectedCoat];
   const button = buttons[selectedButton];
-  // 2D images always display only the first available button
+  // 2D images always display only the first available button (unless disabled in PHOTO_BUTTONS)
   const defaultPhotoButton = buttons[0];
   const coatModel = coat?.model;
+  const activeCoatKey = modelName(coatModel ?? coat?.src);
   const modelPreviewIsLoading = Boolean(coatModel && readyModel !== coatModel);
   const previewIsLoading = Boolean(coat && !loadedImages.has(coat.src));
-  const colorOptions = MODEL_COLORS[modelName(coatModel)] ?? [];
+  const colorOptions = MODEL_COLORS[activeCoatKey] ?? [];
   const colorIndex = coat ? Math.min(coatColors[coat.src] ?? 0, Math.max(colorOptions.length - 1, 0)) : 0;
   const coatColor = colorOptions[colorIndex]?.color;
 
@@ -1016,6 +1025,10 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
 
         {viewMode === "image" ? (
           <CoatCarousel coats={coats} selected={selectedCoat} onSelect={setSelectedCoat} button={defaultPhotoButton} loading={previewIsLoading} onLoad={markImageLoaded} />
+        ) : !coatModel && coat ? (
+          <div className="preview3d" style={{ opacity: 1, visibility: "visible" }}>
+            <PhotoRecolorCanvas src={coat.src} color={coatColor} button={button} />
+          </div>
         ) : (
           <div className={`preview3d ${modelPreviewIsLoading ? "isLoading" : ""}`} aria-busy={modelPreviewIsLoading}>
             <PhotoLayers coat={coat} button={defaultPhotoButton} onLoad={markImageLoaded} />
@@ -1025,7 +1038,6 @@ export default function CoatCustomizer({ coats, buttons }: { coats: CustomizerOp
                 <span>{modelIsLoading ? `Loading 3D model ${Math.round(modelProgress)}%` : "Preparing 3D view"}</span>
               </div>
             )}
-            {!coatModel && <p className="emptyPreview">Add a <code>.glb</code> with the same name as<br />the coat image to <code>public/coats</code></p>}
             <Canvas
               className="modelCanvas"
               dpr={[1, 2]}
@@ -1321,5 +1333,228 @@ function ColorGroup({ title, options, selected, onSelect }: {
         </div>
       ) : <p className="emptyOptions">No colour options for this coat</p>}
     </fieldset>
+  );
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return [h, s, l];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) {
+    const v = Math.round(l * 255);
+    return [v, v, v];
+  }
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return [
+    Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+    Math.round(hue2rgb(p, q, h) * 255),
+    Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+  ];
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = hex.replace("#", "");
+  return [
+    parseInt(clean.substring(0, 2), 16),
+    parseInt(clean.substring(2, 4), 16),
+    parseInt(clean.substring(4, 6), 16),
+  ];
+}
+
+// Flood-fill from image borders so ONLY the outer black backdrop becomes transparent
+// (keeps dark inner lining, collar shadow, and sleeve cuffs completely solid)
+function computeExteriorMask(data: Uint8ClampedArray, width: number, height: number): Uint8Array {
+  const total = width * height;
+  const isBg = new Uint8Array(total);
+  const stack = new Int32Array(total);
+  let top = 0;
+
+  const isDarkBg = (idx: number) => {
+    const p = idx * 4;
+    return data[p] < 14 && data[p + 1] < 14 && data[p + 2] < 14;
+  };
+
+  for (let x = 0; x < width; x++) {
+    const topIdx = x;
+    const botIdx = (height - 1) * width + x;
+    if (!isBg[topIdx] && isDarkBg(topIdx)) { isBg[topIdx] = 1; stack[top++] = topIdx; }
+    if (!isBg[botIdx] && isDarkBg(botIdx)) { isBg[botIdx] = 1; stack[top++] = botIdx; }
+  }
+  for (let y = 0; y < height; y++) {
+    const leftIdx = y * width;
+    const rightIdx = y * width + (width - 1);
+    if (!isBg[leftIdx] && isDarkBg(leftIdx)) { isBg[leftIdx] = 1; stack[top++] = leftIdx; }
+    if (!isBg[rightIdx] && isDarkBg(rightIdx)) { isBg[rightIdx] = 1; stack[top++] = rightIdx; }
+  }
+
+  while (top > 0) {
+    const curr = stack[--top];
+    const x = curr % width;
+    const y = (curr - x) / width;
+
+    if (x > 0) {
+      const n = curr - 1;
+      if (!isBg[n] && isDarkBg(n)) { isBg[n] = 1; stack[top++] = n; }
+    }
+    if (x < width - 1) {
+      const n = curr + 1;
+      if (!isBg[n] && isDarkBg(n)) { isBg[n] = 1; stack[top++] = n; }
+    }
+    if (y > 0) {
+      const n = curr - width;
+      if (!isBg[n] && isDarkBg(n)) { isBg[n] = 1; stack[top++] = n; }
+    }
+    if (y < height - 1) {
+      const n = curr + width;
+      if (!isBg[n] && isDarkBg(n)) { isBg[n] = 1; stack[top++] = n; }
+    }
+  }
+
+  return isBg;
+}
+
+const COAT_5_BUTTON_SPOTS = [
+  { x: 0.503, y: 0.520, r: 0.017 },
+  { x: 0.489, y: 0.612, r: 0.017 },
+];
+
+function PhotoRecolorCanvas({ src, color, button }: { src: string; color?: string; button?: CustomizerOption }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const baseImageRef = useRef<ImageData | null>(null);
+  const bgMaskRef = useRef<Uint8Array | null>(null);
+
+  const renderPixels = useCallback(() => {
+    const canvas = canvasRef.current;
+    const base = baseImageRef.current;
+    const bgMask = bgMaskRef.current;
+    if (!canvas || !base || !bgMask) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const { width, height, data: srcData } = base;
+    const output = ctx.createImageData(width, height);
+    const dst = output.data;
+
+    const targetClothHsl = color ? rgbToHsl(...hexToRgb(color)) : null;
+    const btnRgb = button ? hexToRgb(buttonFinish(button).color) : null;
+
+    for (let y = 0; y < height; y++) {
+      const ny = y / height;
+      for (let x = 0; x < width; x++) {
+        const nx = x / width;
+        const pixelIndex = y * width + x;
+        const i = pixelIndex * 4;
+
+        // Exterior background only -> transparent
+        if (bgMask[pixelIndex]) {
+          dst[i] = 0;
+          dst[i + 1] = 0;
+          dst[i + 2] = 0;
+          dst[i + 3] = 0;
+          continue;
+        }
+
+        const r = srcData[i];
+        const g = srcData[i + 1];
+        const b = srcData[i + 2];
+        const a = srcData[i + 3];
+
+        const isButtonArea = COAT_5_BUTTON_SPOTS.some(
+          (spot) => Math.hypot(nx - spot.x, ny - spot.y) <= spot.r
+        );
+
+        const [h, s, l] = rgbToHsl(r, g, b);
+
+        // Recolor entire neutral button disc including bevel highlights
+        if (isButtonArea && btnRgb && s < 0.35 && l > 0.25) {
+          const shade = l / 0.78;
+          dst[i] = Math.min(255, Math.round(btnRgb[0] * shade));
+          dst[i + 1] = Math.min(255, Math.round(btnRgb[1] * shade));
+          dst[i + 2] = Math.min(255, Math.round(btnRgb[2] * shade));
+          dst[i + 3] = a;
+          continue;
+        }
+
+        const isCoatFabric = l > 0.025 && s > 0.18 && h >= 0.40 && h <= 0.62;
+        if (targetClothHsl && isCoatFabric) {
+          const [tH, tS, tL] = targetClothHsl;
+          const newS = Math.min(1, tS * (s / 0.72));
+          const lightnessScale = tL < 0.35 ? 0.55 + tL : 0.95;
+          const newL = Math.min(1, l * lightnessScale);
+          const [nr, ng, nb] = hslToRgb(tH, newS, newL);
+          dst[i] = nr;
+          dst[i + 1] = ng;
+          dst[i + 2] = nb;
+        } else {
+          dst[i] = r;
+          dst[i + 1] = g;
+          dst[i + 2] = b;
+        }
+        dst[i + 3] = a;
+      }
+    }
+
+    ctx.putImageData(output, 0, 0);
+  }, [color, button]);
+
+  useEffect(() => {
+    const img = new window.Image();
+    img.src = src;
+    img.onload = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      baseImageRef.current = imageData;
+      bgMaskRef.current = computeExteriorMask(imageData.data, canvas.width, canvas.height);
+      renderPixels();
+    };
+  }, [src, renderPixels]);
+
+  useEffect(() => {
+    renderPixels();
+  }, [renderPixels]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        objectFit: "contain",
+        zIndex: 5,
+        pointerEvents: "none",
+      }}
+    />
   );
 }
