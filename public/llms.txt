@@ -1,0 +1,24 @@
+# The Atelier — Coat Customizer
+
+> Interactive bespoke coat and blazer customizer at https://suite-customizer.blenspark.com/
+
+## Overview
+The Atelier (ATELIER 3D) allows users to browse signature tailored weaves in a collection carousel and open the studio to customize fabric dyes and hardware buttons in real time.
+
+## Garment Collection
+- **Camel Twill (`Coat-3`)**: Structured diagonal twill weave.
+- **Sage Corduroy (`Coat-2`)**: Textured sage corduroy tailored jacket.
+- **Charcoal Pinstripe (`Coat-1`)**: Charcoal pinstripe tailored coat.
+- **Cream Linen (`Coat-4`)**: Cream linen blazer with custom fabric dye and button color customization.
+- **Highland Check (`Coat-5`)**: Checkered tailored coat.
+
+## Hardware & Button Options
+- Jet Black
+- Slate Grey
+- Ivory White
+- Reddish Brown
+- Woven Gold
+- Emerald green
+
+## Key Pages
+- [The Atelier Customizer](https://suite-customizer.blenspark.com/)

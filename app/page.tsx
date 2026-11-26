@@ -4,15 +4,15 @@ import path from "node:path";
 import { connection } from "next/server";
 import CoatCustomizer, { type CustomizerOption } from "./coat-customizer";
 
+const SITE_URL = "https://suite-customizer.blenspark.com";
 const SUPPORTED_IMAGE_TYPES = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"]);
 
-// page.tsx
 const DISPLAY_NAMES: Record<string, string> = {
   "coat-1": "Charcoal Pinstripe",
   "coat-2": "Sage Corduroy",
   "coat-3": "Camel Twill",
+  "coat-4": "Cream Linen",
   "coat-5": "Highland Check",
-  "coat-4": "Cream Linen", // <-- Add display name
   black: "Jet Black",
   gray: "Slate Grey",
   white: "Ivory White",
@@ -22,7 +22,7 @@ const DISPLAY_NAMES: Record<string, string> = {
 };
 
 // Picker order for coats; files not listed here follow in filename order.
-const COAT_ORDER = ["coat-3", "coat-2", "coat-1", "coat-5"]; // <-- Add to order
+const COAT_ORDER = ["coat-3", "coat-2", "coat-1", "coat-4", "coat-5"];
 
 function coatRank(filename: string) {
   const index = COAT_ORDER.indexOf(path.parse(filename).name.toLowerCase());
@@ -96,5 +96,84 @@ async function getButtons(): Promise<CustomizerOption[]> {
 export default async function Home() {
   await connection();
   const [coats, buttons] = await Promise.all([getImages("coats"), getButtons()]);
-  return <CoatCustomizer coats={coats} buttons={buttons} />;
+
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "ItemList",
+        name: "The Atelier — Bespoke Coat & Blazer Collection",
+        itemListOrder: "https://schema.org/ItemListUnordered",
+        numberOfItems: coats.length,
+        itemListElement: coats.map((coat, index) => ({
+          "@type": "ListItem",
+          position: index + 1,
+          item: {
+            "@type": "Product",
+            name: coat.name,
+            image: `${SITE_URL}${coat.src}`,
+            brand: { "@type": "Brand", name: "The Atelier" },
+            category: "Apparel & Accessories > Clothing > Outerwear > Coats & Jackets",
+            description: `Custom tailored ${coat.name} available in bespoke fabric dyes and button finishes (${buttons.map((b) => b.name).join(", ")}) inside The Atelier 3D studio.`,
+          },
+        })),
+      },
+      {
+        "@type": "FAQPage",
+        mainEntity: [
+          {
+            "@type": "Question",
+            name: "How does The Atelier 3D Coat Customizer work?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: "Browse tailored coats in the collection carousel, then open the studio to inspect the garment in 360°, switch fabric dyes, and customize button hardware finishes in real time.",
+            },
+          },
+          {
+            "@type": "Question",
+            name: "Which tailored coats and fabrics are available?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: `The collection features ${coats.map((c) => c.name).join(", ")}, each with curated fabric dye options and customizable button finishes.`,
+            },
+          },
+          {
+            "@type": "Question",
+            name: "What button finishes can I choose from?",
+            acceptedAnswer: {
+              "@type": "Answer",
+              text: `Available button finishes include ${buttons.map((b) => b.name).join(", ")}.`,
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+
+      <CoatCustomizer coats={coats} buttons={buttons} />
+
+      {/* Crawl-accessible semantic catalog for Google & AI search engines (GEO) */}
+      <section className="sr-only" aria-label="Bespoke Coat Collection Catalog">
+        <h2>The Atelier — Bespoke Tailored Coats &amp; Blazers</h2>
+        <p>
+          Interactive 3D garment configurator to customize tailored weaves, fabric dyes, and button finishes.
+        </p>
+        <ul>
+          {coats.map((coat) => (
+            <li key={coat.src}>
+              <h3>{coat.name}</h3>
+              <p>Customizable fabric dye shades and button hardware finishes.</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </>
+  );
 }
